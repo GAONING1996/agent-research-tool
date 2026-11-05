@@ -1,5 +1,7 @@
 # agent-research-tool
 
+![tests](https://github.com/GAONING1996/agent-research-tool/actions/workflows/tests.yml/badge.svg)
+
 给 AI agent 用的树状调研工具：发现 → 抓正文 → 判卷 → 继续拆 → 汇总成报告。
 人在这个流程里只做两件事：**给 key**、**在浏览器里登录**。其余全部由 agent 完成。
 
