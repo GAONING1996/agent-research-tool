@@ -6,6 +6,8 @@
 !pyproject.toml
 !.env.example
 !.gitignore
+!.github/
+!.github/**
 !research_tool/
 !research_tool/**
 !test_research.py
