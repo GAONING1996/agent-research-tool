@@ -631,3 +631,36 @@ class GitHubIssueChannelTests(unittest.TestCase):
                 collect._collect_github_discussions("mcp", 1)
         self.assertIn("GITHUB_TOKEN", str(caught.exception))
         self.assertIn("config set", str(caught.exception))
+
+
+class ForumChannelTests(unittest.TestCase):
+    def test_v2ex_maps_topic_fields_and_sorts_newest_first(self):
+        payload = {"hits": [
+            {"_source": {"id": 1, "title": "old", "created": "2020-01-01T00:00:00", "replies": 2}},
+            {"_source": {"id": 2, "title": "new", "created": "2026-01-01T00:00:00", "replies": 5}},
+        ]}
+        with patch.object(collect, "_request_json", return_value=payload):
+            items = collect._collect_v2ex("clash", 2)
+        self.assertEqual([item["title"] for item in items], ["new", "old"])
+        self.assertEqual(items[0]["url"], "https://www.v2ex.com/t/2")
+        self.assertEqual(items[0]["metrics"]["replies"], 5)
+
+    def test_stackoverflow_maps_epoch_and_metrics(self):
+        payload = {"items": [{
+            "title": "Asyncio cancellation",
+            "link": "https://stackoverflow.com/questions/1",
+            "creation_date": 1557379719,
+            "score": 31,
+            "answer_count": 2,
+            "is_answered": True,
+            "tags": ["python", "asyncio"],
+        }]}
+        with patch.object(collect, "_request_json", return_value=payload) as request:
+            items = collect._collect_stackoverflow("asyncio", 1)
+        self.assertEqual(request.call_args[0][1]["site"], "stackoverflow")
+        self.assertEqual(items[0]["metrics"]["answers"], 2)
+        self.assertTrue(items[0]["published"].startswith("2019-05-09"))
+
+    def test_new_forum_channels_are_registered(self):
+        self.assertIn("v2ex", collect.SUPPORTED_PLATFORMS)
+        self.assertIn("so", collect.SUPPORTED_PLATFORMS)

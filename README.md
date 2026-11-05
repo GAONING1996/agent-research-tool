@@ -113,6 +113,7 @@ research config decline --key GROQ_API_KEY --reason "用户没有 Groq 账号"
 | 长文抽取 | `OPEN_NOTEBOOK_URL` + `JINA_API_KEY` | agent 起 docker（上游 Open Notebook）+ 用户给 Jina key | 风控站点正文偏短或抓不到 |
 | 登录态平台 | Chrome + `OPENCLI_PATH` | 用户登录一次 + 装扩展 | 知乎/小红书/Reddit 只能抓公开页 |
 | GitHub issue / discussion | `GITHUB_TOKEN` | 用户给只读 token（可选） | 仍可搜索，但每小时 60 次、搜索每分钟 10 次，批量调研易触限；discussion 搜索不可用 |
+| V2EX / Stack Overflow | 无需配置 | 公开接口 | 无（配额由对方站点限制） |
 | YouTube/音频 | `YT_DLP_PATH` | agent 装 | YouTube 与播客音频不可用 |
 | B 站 | `BILI_PATH` | agent 装 | B 站渠道不可用 |
 | PDF 直读 | `PyMuPDF` | agent 装 | PDF 只有链接，没有正文 |
@@ -149,7 +150,7 @@ research digest --state tree.json
 |---|---|
 | `research` | 树状调研全流程 |
 | `fetch_smart` | 四级抓正文（Tavily → HTTP → 无头 Chrome → 已登录会话；可选 PDF、滚动翻页、Open Notebook） |
-| `collect` | 多渠采集：web / bili / youtube / hn / github / ghissues / ghdiscussions / rss / podcast / stats |
+| `collect` | 多渠采集：web / bili / youtube / hn / github / ghissues / ghdiscussions / v2ex / so / rss / podcast / stats |
 | `search_dual` | Tavily + SearXNG 并行搜索并去重 |
 | `rss_reader` | 订阅源轮转读取 |
 | `collect_browser` | 登录态平台（小红书 / 知乎 / Reddit） |

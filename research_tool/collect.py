@@ -53,11 +53,13 @@ def _proxies() -> dict[str, str] | None:
 GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
 GITHUB_ISSUES_URL = "https://api.github.com/search/issues"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
+V2EX_SEARCH_URL = "https://www.sov2ex.com/api/search"
+SO_SEARCH_URL = "https://api.stackexchange.com/2.3/search/advanced"
 HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 GROQ_TRANSCRIPT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
 DEFAULT_PLATFORMS = ("web", "bili", "youtube", "hn", "github", "rss")
-SUPPORTED_PLATFORMS = frozenset(DEFAULT_PLATFORMS) | {"stats", "podcast", "ghissues", "ghdiscussions"}
+SUPPORTED_PLATFORMS = frozenset(DEFAULT_PLATFORMS) | {"stats", "podcast", "ghissues", "ghdiscussions", "v2ex", "so"}
 CHANNEL_TIMEOUT = 30.0
 STATS_CHANNEL_TIMEOUT = 75.0
 TOTAL_TIMEOUT = 90.0
@@ -713,6 +715,67 @@ def _collect_github_discussions(query: str, limit: int) -> list[dict[str, Any]]:
     return items
 
 
+def _collect_v2ex(query: str, limit: int) -> list[dict[str, Any]]:
+    payload = _request_json(V2EX_SEARCH_URL, {"q": query, "size": min(max(limit * 10, 20), 50)}, timeout=(5.0, 20.0))
+    hits = [hit for hit in (payload.get("hits") or []) if isinstance(hit, dict)]
+    hits.sort(key=lambda hit: str((hit.get("_source") or {}).get("created") or ""), reverse=True)
+    items = []
+    for index, hit in enumerate(hits[:limit], start=1):
+        source = hit.get("_source") if isinstance(hit, dict) else None
+        if not isinstance(source, dict):
+            continue
+        topic_id = source.get("id")
+        if not topic_id:
+            continue
+        item = _make_item(
+            "v2ex",
+            index,
+            source.get("title"),
+            f"https://www.v2ex.com/t/{topic_id}",
+            source.get("created"),
+            metrics={"replies": _number(source.get("replies")) or 0},
+            summary=(source.get("content") or "")[:300],
+            author=source.get("member") or "",
+        )
+        if item:
+            items.append(item)
+    return items
+
+
+def _collect_stackoverflow(query: str, limit: int) -> list[dict[str, Any]]:
+    payload = _request_json(
+        SO_SEARCH_URL,
+        {"order": "desc", "sort": "creation", "q": query,
+         "site": "stackoverflow", "pagesize": limit},
+        timeout=(5.0, 20.0),
+    )
+    items = []
+    for index, row in enumerate((payload.get("items") or [])[:limit], start=1):
+        if not isinstance(row, dict):
+            continue
+        created = row.get("creation_date")
+        published = None
+        if isinstance(created, (int, float)):
+            published = dt.datetime.fromtimestamp(created, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        item = _make_item(
+            "so",
+            index,
+            row.get("title"),
+            row.get("link"),
+            published,
+            metrics={
+                "score": _number(row.get("score")) or 0,
+                "answers": _number(row.get("answer_count")) or 0,
+                "answered": bool(row.get("is_answered")),
+            },
+            summary="",
+            tags=",".join(row.get("tags") or []),
+        )
+        if item:
+            items.append(item)
+    return items
+
+
 def _collect_hn(query: str, limit: int) -> list[dict[str, Any]]:
     payload = _request_json(HN_SEARCH_URL, {"query": query, "hitsPerPage": limit})
     items = []
@@ -958,6 +1021,8 @@ def _collect_channels(
         "github": _collect_github,
         "ghissues": _collect_github_issues,
         "ghdiscussions": _collect_github_discussions,
+        "v2ex": _collect_v2ex,
+        "so": _collect_stackoverflow,
         "rss": _collect_rss,
         "podcast": _collect_podcast,
         "stats": _collect_stats,
