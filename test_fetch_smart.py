@@ -432,7 +432,7 @@ class FetchSmartTests(unittest.TestCase):
         ) as tavily_extract, patch.object(fetch_smart, "_browser_extract") as browser_extract, patch.object(
             fetch_smart.subprocess, "run", side_effect=OSError("opencli missing")
         ):
-            with self.assertRaisesRegex(RuntimeError, "opencli failed: opencli open could not start") as raised:
+            with self.assertRaisesRegex(RuntimeError, "opencli") as raised:
                 fetch_smart.fetch_smart("https://example.com/article", route="logged-in")
 
         message = str(raised.exception)

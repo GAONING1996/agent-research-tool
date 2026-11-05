@@ -127,11 +127,17 @@ def _load_env() -> None:
             os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
 
+SECRET_ENV_NAMES = (
+    "TAVILY_API_KEY", "GROQ_API_KEY", "AGNES_API_KEY", "JINA_API_KEY",
+    "GITHUB_TOKEN", "SEARXNG_URL", "RESEARCH_PROXY",
+)
+
+
 def _redact_text(value: Any) -> str:
     message = str(value)
-    for name in ("TAVILY_API_KEY", "GROQ_API_KEY", "SEARXNG_URL"):
+    for name in SECRET_ENV_NAMES:
         secret = os.environ.get(name, "").strip()
-        if secret:
+        if len(secret) >= 8:
             message = message.replace(secret, "[redacted]")
     return message
 

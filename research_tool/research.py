@@ -183,13 +183,18 @@ def _collector_slot_paths(path: Path) -> list[Path]:
     return [Path(f"{path}.collector.{index}.lock") for index in range(COLLECTOR_SLOTS)]
 
 
+SECRET_ENV_NAMES = (
+    "TAVILY_API_KEY", "GROQ_API_KEY", "AGNES_API_KEY", "JINA_API_KEY",
+    "GITHUB_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
+    "SEARXNG_URL", "RESEARCH_PROXY",
+)
+
+
 def _safe_text(value: Any) -> str:
     text = str(value or "")
-    for name, secret in os.environ.items():
-        upper = name.upper()
-        if not secret or not any(marker in upper for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD", "SEARXNG_URL")):
-            continue
-        if len(secret) >= 4:
+    for name in SECRET_ENV_NAMES:
+        secret = (os.environ.get(name) or "").strip()
+        if len(secret) >= 8:
             text = text.replace(secret, "[redacted]")
     return text
 
