@@ -39,7 +39,7 @@ except ImportError:
     import config
 
 PROXY_URL = config.proxy_url()
-_MISSING = Path("/__missing__/not-installed")
+_MISSING = Path(os.path.abspath("/__missing__/not-installed"))
 BILI_EXE = config.resolve_program(
     "BILI_PATH", "bili", candidates=(str(Path.home() / ".agent-reach-venv" / "Scripts" / "bili.exe"),),
 ) or _MISSING

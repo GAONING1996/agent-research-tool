@@ -32,7 +32,7 @@ from bs4 import BeautifulSoup
 
 
 TAVILY_EXTRACT_URL = "https://api.tavily.com/extract"
-_MISSING = Path("/__missing__/not-installed")
+_MISSING = Path(os.path.abspath("/__missing__/not-installed"))
 CHROME_PATH = config.chrome_path() or _MISSING
 OPENCLI_PATH = config.resolve_program(
     "OPENCLI_PATH", "opencli",

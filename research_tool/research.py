@@ -47,7 +47,7 @@ RESEARCH_CHANNELS = {"web", "bili", "youtube", "hn", "github", "rss", "stats", "
 OPENCLI_PATH = config.resolve_program(
     "OPENCLI_PATH", "opencli",
     candidates=(str(Path.home() / "AppData" / "Local" / "hermes" / "node" / "opencli"),),
-) or Path("/__missing__/not-installed")
+) or Path(os.path.abspath("/__missing__/not-installed"))
 OPENCLI_NODE = OPENCLI_PATH.parent / "node.exe"
 OPENCLI_ENTRY = OPENCLI_PATH.parent / "node_modules/@jackwener/opencli/dist/src/main.js"
 COLLECT_PLATFORMS = {"bili", "youtube", "hn", "github", "rss", "stats"}
