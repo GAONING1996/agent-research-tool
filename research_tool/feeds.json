@@ -1,0 +1,17 @@
+{
+  "feeds": [
+    {"name": "Hacker News", "url": "https://hnrss.org/frontpage", "proxy": true},
+    {"name": "arXiv cs.AI", "url": "https://export.arxiv.org/rss/cs.AI", "proxy": true},
+    {"name": "知乎热榜", "url": "http://127.0.0.1:1200/zhihu/hot", "proxy": false},
+    {"name": "知乎日报", "url": "http://127.0.0.1:1200/zhihu/daily", "proxy": false},
+    {"name": "36氪快讯", "url": "http://127.0.0.1:1200/36kr/newsflashes", "proxy": false},
+    {"name": "少数派", "url": "https://sspai.com/feed", "proxy": true},
+    {"name": "Hugging Face 博客", "url": "https://huggingface.co/blog/feed.xml", "proxy": true},
+    {"name": "DeepMind 博客", "url": "https://deepmind.google/blog/rss.xml", "proxy": true},
+    {"name": "Cloudflare 博客", "url": "https://blog.cloudflare.com/rss/", "proxy": true},
+    {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "proxy": true},
+    {"name": "Cointelegraph", "url": "https://cointelegraph.com/rss", "proxy": true},
+    {"name": "Operit Releases", "url": "https://github.com/AAswordman/Operit/releases.atom", "proxy": true},
+    {"name": "SD Maid SE Releases", "url": "https://github.com/d4rken-org/sdmaid-se/releases.atom", "proxy": true}
+  ]
+}

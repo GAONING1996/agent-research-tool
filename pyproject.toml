@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-research-tool"
+version = "0.1.0"
+description = "Tree-based research toolkit for AI agents: collect, review, iterate, digest."
+readme = "AGENTS.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "requests>=2.31",
+  "beautifulsoup4>=4.12",
+]
+
+[project.optional-dependencies]
+pdf = ["PyMuPDF>=1.23"]
+mcp = ["mcp>=1.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+research = "research_tool.research:main"
+research-mcp = "research_tool.mcp_server:main"
+
+[tool.setuptools]
+packages = ["research_tool"]
+
+[tool.setuptools.package-data]
+research_tool = ["*.json", "*.ps1"]
