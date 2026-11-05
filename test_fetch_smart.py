@@ -322,9 +322,9 @@ class FetchSmartTests(unittest.TestCase):
             SimpleNamespace(stdout=json.dumps(body, ensure_ascii=False), stderr="", returncode=0),
         ]
         output = io.StringIO()
-        with patch.object(fetch_smart.subprocess, "run", side_effect=completed) as run, patch.object(
-            fetch_smart.time, "sleep"
-        ), redirect_stdout(output):
+        with patch.object(fetch_smart, "_opencli_command", return_value=["opencli"]), patch.object(
+            fetch_smart.subprocess, "run", side_effect=completed
+        ) as run, patch.object(fetch_smart.time, "sleep"), redirect_stdout(output):
             exit_code = fetch_smart.main(["https://example.com/article", "--route", "logged-in", "--json"])
 
         payload = json.loads(output.getvalue())
@@ -341,7 +341,9 @@ class FetchSmartTests(unittest.TestCase):
             SimpleNamespace(stdout="", stderr="", returncode=0),
             SimpleNamespace(stdout=json.dumps(body, ensure_ascii=False), stderr="", returncode=0),
         ]
-        with patch.object(fetch_smart, "_http_extract", return_value=("Login", "微信登录")), patch.object(
+        with patch.object(fetch_smart, "_opencli_command", return_value=["opencli"]), patch.object(
+            fetch_smart, "_http_extract", return_value=("Login", "微信登录")
+        ), patch.object(
             fetch_smart, "_tavily_extract", side_effect=RuntimeError("no Tavily result")
         ), patch.object(fetch_smart, "_browser_extract", side_effect=RuntimeError("no browser result")), patch.object(
             fetch_smart.subprocess, "run", side_effect=completed
@@ -401,7 +403,9 @@ class FetchSmartTests(unittest.TestCase):
         opencli.assert_not_called()
 
     def test_auto_route_preserves_best_result_and_reports_opencli_failure(self):
-        with patch.object(fetch_smart, "_http_extract", return_value=("Login", "微信登录")), patch.object(
+        with patch.object(fetch_smart, "_opencli_command", return_value=["opencli"]), patch.object(
+            fetch_smart, "_http_extract", return_value=("Login", "微信登录")
+        ), patch.object(
             fetch_smart, "_tavily_extract", side_effect=RuntimeError("no Tavily result")
         ), patch.object(fetch_smart, "_browser_extract", side_effect=RuntimeError("no browser result")), patch.object(
             fetch_smart.subprocess, "run", side_effect=OSError("opencli missing")

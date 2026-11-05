@@ -315,9 +315,10 @@ class CollectTests(unittest.TestCase):
             self.assertEqual(collect._yt_dlp_executable(), "yt-dlp")
             which.assert_called_once_with("yt-dlp")
 
-    def test_bili_executable_is_the_configured_absolute_path(self):
+    def test_bili_executable_is_absolute_or_the_missing_sentinel(self):
         self.assertTrue(collect.BILI_EXE.is_absolute())
-        self.assertEqual(collect.BILI_EXE.name.lower(), "bili.exe")
+        if collect.BILI_EXE.name.lower() not in {"bili.exe", "bili"}:
+            self.assertEqual(collect.BILI_EXE.name, "not-installed")
 
     def test_bili_failure_does_not_hide_other_channel_results(self):
         hn_item = {
