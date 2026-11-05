@@ -104,7 +104,7 @@ REGISTRY: tuple[Capability, ...] = (
         asked_as="要抓知乎、小红书、Reddit 的话，需要你在本机 Chrome 里登录一次，并装 OpenCLI 扩展；不装就只能抓公开页面。",
         how_to_get="安装 OpenCLI（https://github.com/jackwener/opencli），保持 Chrome 运行并登录目标站点，然后设置 OPENCLI_PATH 指向可执行文件。",
         missing_effect="登录态平台不可用，自动退回普通网页抓取，部分内容拿不到。",
-        probe="command:opencli",
+        probe="opencli",
     ),
     Capability(
         key="CHROME_PATH",
@@ -183,6 +183,10 @@ def _probe(capability: Capability) -> tuple[bool, str]:
     if probe == "ytdlp":
         found = config.resolve_program("YT_DLP_PATH", "yt-dlp",
                                        candidates=(str(Path.home() / ".agent-reach-venv" / "Scripts" / "yt-dlp.exe"),))
+        return (bool(found), str(found) if found else "not found")
+    if probe == "opencli":
+        found = config.resolve_program("OPENCLI_PATH", "opencli",
+                                       candidates=(str(Path.home() / "AppData" / "Local" / "hermes" / "node" / "opencli"),))
         return (bool(found), str(found) if found else "not found")
     if probe == "bili":
         found = config.resolve_program("BILI_PATH", "bili",

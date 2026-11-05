@@ -2836,7 +2836,26 @@ def doctor_data() -> dict[str, Any]:
         row for row in capability_rows
         if row["state"] == "missing" and row["tier"] in {"agent_install", "local_service"}
     ]
-    requirements = [
+    search_keys = {"TAVILY_API_KEY", "SEARXNG_URL"}
+    search_missing = {row["key"] for row in pending_human} >= search_keys
+    if search_missing:
+        pending_human = [row for row in pending_human if row["key"] not in search_keys]
+        merged = dict(capabilities.BY_KEY["TAVILY_API_KEY"].__dict__)
+        merged["key"] = "SEARCH_PROVIDER"
+        requirements = [{
+            "key": "SEARCH_PROVIDER",
+            "required": True,
+            "tier": "required",
+            "status": "missing",
+            "asked_as": "需要你给我一个搜索 key，二选一即可：Tavily（tavily.com 免费注册）或一个 SearXNG 地址（自己 docker 起也行）。",
+            "how_to_fix": "echo '{\"TAVILY_API_KEY\":\"...\"}' | research config set --stdin  或设置 SEARXNG_URL",
+            "missing_effect": "两个都没有则无法搜索，调研无法开始。",
+            "can_decline": False,
+            "decline_command": "",
+        }]
+    else:
+        requirements = []
+    requirements += [
         {
             "key": row["key"],
             "required": row["tier"] == "required",
@@ -2859,7 +2878,7 @@ def doctor_data() -> dict[str, Any]:
              "missing_effect": row["missing_effect"]}
             for row in pending_agent
         ],
-        "needs_user": bool(pending_human),
+        "needs_user": bool(pending_human) or search_missing,
         "requirements": requirements,
         "config": config.describe(),
     }

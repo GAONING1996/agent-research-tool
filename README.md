@@ -24,6 +24,18 @@ pip install "git+https://github.com/GAONING1996/agent-research-tool.git"
 pip install "agent-research-tool[pdf,mcp] @ git+https://github.com/GAONING1996/agent-research-tool.git"
 ```
 
+没有 pip、或者不想污染全局环境时，先建虚拟环境（推荐）：
+
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux / macOS
+source .venv/bin/activate
+```
+
+系统里没有 Python 3.10+ 时：Windows `winget install Python.Python.3.12`；macOS `brew install python`；Debian/Ubuntu `sudo apt install python3 python3-venv`。
+
 装完有两个命令：
 
 | 命令 | 用途 |

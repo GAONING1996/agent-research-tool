@@ -2242,3 +2242,23 @@ class CapabilityRegistryTests(unittest.TestCase):
         parser = research.build_parser()
         text = json.dumps(research.contract_data(parser), ensure_ascii=False)
         self.assertIn("setup", text)
+
+
+class DoctorSearchGroupTests(unittest.TestCase):
+    def test_tavily_and_searxng_collapse_into_one_requirement(self):
+        import research
+
+        rows = [
+            {"key": "TAVILY_API_KEY", "state": "missing", "tier": "required",
+             "asked_as": "a", "how_to_get": "b", "missing_effect": "c"},
+            {"key": "SEARXNG_URL", "state": "missing", "tier": "required",
+             "asked_as": "a", "how_to_get": "b", "missing_effect": "c"},
+        ]
+        with mock.patch.object(research.capabilities, "statuses", return_value=rows), \
+             mock.patch.object(research.capabilities, "search_ready", return_value=False):
+            data = research.doctor_data()
+        keys = [item["key"] for item in data["requirements"]]
+        self.assertEqual(keys.count("SEARCH_PROVIDER"), 1)
+        self.assertNotIn("TAVILY_API_KEY", keys)
+        self.assertNotIn("SEARXNG_URL", keys)
+        self.assertTrue(data["needs_user"])
