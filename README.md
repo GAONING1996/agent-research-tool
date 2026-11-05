@@ -11,9 +11,17 @@
 
 需要 Python 3.10+。
 
+> 尚未发布到 PyPI，请从 GitHub 安装。下面两条等价，选一条即可。
+
 ```bash
-pipx install "agent-research-tool"                 # 推荐：隔离环境，命令直接可用
-pip install "agent-research-tool[pdf,mcp]"          # 需要读 PDF / 用 MCP 时加 extras
+# 方式一：pipx（隔离环境，推荐）
+pipx install "git+https://github.com/GAONING1996/agent-research-tool.git"
+
+# 方式二：pip
+pip install "git+https://github.com/GAONING1996/agent-research-tool.git"
+
+# 需要 PDF 直读 / MCP 时，在第二种方式上加 extras：
+pip install "agent-research-tool[pdf,mcp] @ git+https://github.com/GAONING1996/agent-research-tool.git"
 ```
 
 装完有两个命令：
@@ -23,7 +31,13 @@ pip install "agent-research-tool[pdf,mcp]"          # 需要读 PDF / 用 MCP �
 | `research` | 主入口，所有调研动作 |
 | `research-mcp` | MCP stdio 服务，给 Claude Desktop / Codex / 其他支持 MCP 的客户端 |
 
-从源码装：`git clone <repo> && pip install .`
+从源码装（要改代码时用）：
+
+```bash
+git clone https://github.com/GAONING1996/agent-research-tool.git
+cd agent-research-tool
+pip install -e "."
+```
 
 ---
 
@@ -46,7 +60,11 @@ research doctor --json      # 1. 探测环境，拿到结构化清单
 agent 拿到 `requirements` 后，逐条问用户；用户给了就写进去：
 
 ```bash
+# bash / zsh / git-bash
 echo '{"TAVILY_API_KEY":"..."}' | research config set --stdin --json
+
+# Windows PowerShell
+'{"TAVILY_API_KEY":"..."}' | research config set --stdin --json
 ```
 
 **用户明确表示拿不到时**，才允许降级，并且必须显式记录，不能默默跳过：
@@ -80,7 +98,7 @@ research config decline --key GROQ_API_KEY --reason "用户没有 Groq 账号"
 | 网页搜索（辅） | `SEARXNG_URL` | 用户/agent 起 docker | 少一路交叉验证 |
 | 视频/播客转写 | `GROQ_API_KEY` | 用户给 key | 无字幕内容只拿得到标题 |
 | 识图兜底 | `AGNES_API_KEY` | 用户给 key | 图片只能本机 OCR（只认字） |
-| 长文抽取 | `OPEN_NOTEBOOK_URL` + `JINA_API_KEY` | agent 起 docker + 用户给 Jina key | 风控站点正文偏短或抓不到 |
+| 长文抽取 | `OPEN_NOTEBOOK_URL` + `JINA_API_KEY` | agent 起 docker（上游 Open Notebook）+ 用户给 Jina key | 风控站点正文偏短或抓不到 |
 | 登录态平台 | Chrome + `OPENCLI_PATH` | 用户登录一次 + 装扩展 | 知乎/小红书/Reddit 只能抓公开页 |
 | YouTube/音频 | `YT_DLP_PATH` | agent 装 | YouTube 与播客音频不可用 |
 | B 站 | `BILI_PATH` | agent 装 | B 站渠道不可用 |
@@ -131,9 +149,11 @@ research digest --state tree.json
 ## 4. MCP（可选）
 
 ```bash
-pip install "agent-research-tool[mcp]"
+pip install "agent-research-tool[mcp] @ git+https://github.com/GAONING1996/agent-research-tool.git"
 research-mcp                      # stdio
 ```
+
+Windows 上如果客户端找不到 `research-mcp`，用完整路径（`pipx` 装在 `%LOCALAPPDATA%\pipx\venvs\agent-research-tool\Scripts\research-mcp.exe`，`pip` 装在 Python 的 `Scripts` 目录）。
 
 Claude Desktop / Codex 的配置写法（以 Codex 为例）：
 
