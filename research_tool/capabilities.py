@@ -147,6 +147,16 @@ REGISTRY: tuple[Capability, ...] = (
         probe="module:fitz",
     ),
     Capability(
+        key="GITHUB_TOKEN",
+        label="GitHub issue/discussion 搜索配额",
+        tier="user_key",
+        why="查开源项目踩坑时答案多在 issue 和 discussion；带 token 配额从每小时 60 次升到 5000 次。",
+        asked_as="如果你有 GitHub 账号，给一个只读 token（Settings → Developer settings → Personal access tokens，勾 public_repo 或只读权限即可），GitHub 搜索会稳很多；不给也能用，只是每小时 60 次。",
+        how_to_get="GitHub 设置里生成 classic token（无需任何 scope 也能提高限额），然后：echo '{\"GITHUB_TOKEN\":\"ghp_xxx\"}' | research config set --stdin",
+        missing_effect="GitHub 仓库与 issue 搜索仍可用，但每小时 60 次、搜索接口每分钟 10 次，批量调研容易触限。",
+        probe="env",
+    ),
+    Capability(
         key="RESEARCH_PROXY",
         label="境外源代理",
         tier="optional",

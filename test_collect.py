@@ -597,3 +597,37 @@ class BrowserCollectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class GitHubIssueChannelTests(unittest.TestCase):
+    def test_issue_search_appends_issue_qualifier_and_maps_fields(self):
+        payload = {"items": [{
+            "title": "Crash on startup",
+            "html_url": "https://github.com/acme/app/issues/7",
+            "updated_at": "2026-11-04T10:00:00Z",
+            "body": "steps to reproduce",
+            "comments": 3,
+            "state": "open",
+            "reactions": {"total_count": 12},
+            "repository_url": "https://api.github.com/repos/acme/app",
+        }]}
+        with patch.object(collect, "_request_json", return_value=payload) as request:
+            items = collect._collect_github_issues("crash", 1)
+        params = request.call_args[0][1]
+        self.assertEqual(params["q"], "crash is:issue")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["repo"], "acme/app")
+        self.assertEqual(items[0]["metrics"]["reactions"], 12)
+
+    def test_token_is_sent_only_when_configured(self):
+        with patch.object(collect.config, "get", return_value="ghp_abc"):
+            self.assertEqual(collect._github_headers()["Authorization"], "Bearer ghp_abc")
+        with patch.object(collect.config, "get", return_value=""):
+            self.assertNotIn("Authorization", collect._github_headers())
+
+    def test_discussions_require_token_with_actionable_message(self):
+        with patch.object(collect.config, "get", return_value=""):
+            with self.assertRaises(RuntimeError) as caught:
+                collect._collect_github_discussions("mcp", 1)
+        self.assertIn("GITHUB_TOKEN", str(caught.exception))
+        self.assertIn("config set", str(caught.exception))

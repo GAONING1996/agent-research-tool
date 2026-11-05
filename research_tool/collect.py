@@ -51,11 +51,13 @@ YTDLP_EXE = config.resolve_program(
 def _proxies() -> dict[str, str] | None:
     return {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
 GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
+GITHUB_ISSUES_URL = "https://api.github.com/search/issues"
+GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 GROQ_TRANSCRIPT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
 DEFAULT_PLATFORMS = ("web", "bili", "youtube", "hn", "github", "rss")
-SUPPORTED_PLATFORMS = frozenset(DEFAULT_PLATFORMS) | {"stats", "podcast"}
+SUPPORTED_PLATFORMS = frozenset(DEFAULT_PLATFORMS) | {"stats", "podcast", "ghissues", "ghdiscussions"}
 CHANNEL_TIMEOUT = 30.0
 STATS_CHANNEL_TIMEOUT = 75.0
 TOTAL_TIMEOUT = 90.0
@@ -593,12 +595,18 @@ def _collect_youtube(query: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _request_json(
-    url: str, params: dict[str, Any], timeout: tuple[float, float] = (5.0, 20.0)
+    url: str,
+    params: dict[str, Any],
+    timeout: tuple[float, float] = (5.0, 20.0),
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    if headers:
+        request_headers.update(headers)
     response = requests.get(
         url,
         params=params,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        headers=request_headers,
         timeout=timeout,
         proxies=_proxies(),
     )
@@ -607,6 +615,102 @@ def _request_json(
     if not isinstance(payload, dict):
         raise RuntimeError("API returned a non-object JSON response")
     return payload
+
+
+def _github_headers() -> dict[str, str]:
+    headers = {"Accept": "application/vnd.github+json"}
+    token = (config.get("GITHUB_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _collect_github_issues(query: str, limit: int) -> list[dict[str, Any]]:
+    payload = _request_json(
+        GITHUB_ISSUES_URL,
+        {"q": f"{query} is:issue", "sort": "updated", "order": "desc", "per_page": limit},
+        timeout=(5.0, 20.0),
+        headers=_github_headers(),
+    )
+    rows = payload.get("items", [])
+    items = []
+    for index, row in enumerate(rows[:limit], start=1):
+        if not isinstance(row, dict):
+            continue
+        repository = "/".join((row.get("repository_url") or "").rstrip("/").split("/")[-2:])
+        reactions = row.get("reactions") or {}
+        item = _make_item(
+            "ghissues",
+            index,
+            row.get("title"),
+            row.get("html_url"),
+            row.get("updated_at") or row.get("created_at"),
+            metrics={
+                "comments": _number(row.get("comments")) or 0,
+                "reactions": _number(reactions.get("total_count")) or 0,
+                "state": row.get("state") or "",
+            },
+            summary=(row.get("body") or "")[:400],
+            repo=repository,
+        )
+        if item:
+            items.append(item)
+    return items
+
+
+def _collect_github_discussions(query: str, limit: int) -> list[dict[str, Any]]:
+    token = (config.get("GITHUB_TOKEN") or "").strip()
+    if not token:
+        raise RuntimeError(
+            "GitHub Discussions search needs GITHUB_TOKEN; add one with: "
+            "echo '{\"GITHUB_TOKEN\":\"ghp_xxx\"}' | research config set --stdin"
+        )
+    graphql = """
+    query($q: String!, $n: Int!) {
+      search(query: $q, type: DISCUSSION, first: $n) {
+        nodes {
+          ... on Discussion {
+            title
+            url
+            updatedAt
+            bodyText
+            comments { totalCount }
+            repository { nameWithOwner }
+          }
+        }
+      }
+    }
+    """
+    response = requests.post(
+        GITHUB_GRAPHQL_URL,
+        json={"query": graphql, "variables": {"q": query, "n": limit}},
+        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json",
+                 "Authorization": f"Bearer {token}"},
+        timeout=(5.0, 20.0),
+        proxies=_proxies(),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if isinstance(payload, dict) and payload.get("errors"):
+        raise RuntimeError("GitHub GraphQL error: " + str(payload["errors"][0].get("message", ""))[:200])
+    nodes = (((payload.get("data") or {}).get("search") or {}).get("nodes") or [])
+    items = []
+    for index, row in enumerate(nodes[:limit], start=1):
+        if not isinstance(row, dict):
+            continue
+        item = _make_item(
+            "ghdiscussions",
+            index,
+            row.get("title"),
+            row.get("url"),
+            row.get("updatedAt"),
+            metrics={"comments": _number((row.get("comments") or {}).get("totalCount")) or 0},
+            summary=(row.get("bodyText") or "")[:400],
+            repo=(row.get("repository") or {}).get("nameWithOwner", ""),
+        )
+        if item:
+            items.append(item)
+    return items
 
 
 def _collect_hn(query: str, limit: int) -> list[dict[str, Any]]:
@@ -852,6 +956,8 @@ def _collect_channels(
         "youtube": _collect_youtube,
         "hn": _collect_hn,
         "github": _collect_github,
+        "ghissues": _collect_github_issues,
+        "ghdiscussions": _collect_github_discussions,
         "rss": _collect_rss,
         "podcast": _collect_podcast,
         "stats": _collect_stats,
