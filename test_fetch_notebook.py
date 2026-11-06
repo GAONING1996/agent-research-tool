@@ -260,5 +260,114 @@ class NotebookFetchTests(unittest.TestCase):
         self.assertEqual(json.loads(self.state_path.read_text(encoding="utf-8"))["notebook_id"], "notebook-new")
 
 
+class AutoNotebookRoutingTests(unittest.TestCase):
+    url = "https://example.test/article"
+    notebook_body = "Notebook article detail. " * 20
+    complete_body = "Complete authenticated article detail. " * 100
+
+    def setUp(self):
+        self.clock = 0.0
+        self._patch("_load_local_env")
+        self._patch("_notebook_base_url", return_value="http://notebook.test")
+        self._patch("monotonic", target=fetch_smart.time, side_effect=lambda: self.clock)
+        self.http = self._patch("_http_extract", return_value=("HTTP", "Partial body"))
+        self._patch("_tavily_extract", side_effect=RuntimeError("no Tavily"))
+        self._patch("_browser_extract", side_effect=RuntimeError("no browser"))
+        self.notebook = self._patch("_notebook_extract", return_value=("Notebook", self.notebook_body))
+        self.opencli = self._patch("_opencli_extract", return_value=("Article", self.complete_body))
+
+    def _patch(self, name, *, target=fetch_smart, **kwargs):
+        context = patch.object(target, name, **kwargs)
+        mock = context.start()
+        self.addCleanup(context.stop)
+        return mock
+
+    def test_notebook_below_minimum_continues_to_opencli_without_login_marker(self):
+        # Exercise both :low text and a normal body below a caller's larger minimum.
+        for body, minimum in ((self.notebook_body, 800), (self.notebook_body * 3, 2000)):
+            with self.subTest(min_chars=minimum):
+                self.notebook.return_value = ("Notebook", body)
+                self.opencli.reset_mock()
+                result = fetch_smart.fetch_smart(self.url, min_chars=minimum)
+
+                self.opencli.assert_called_once()
+                self.assertEqual(result["method"], "opencli")
+                self.assertEqual(result["text"], self.complete_body.strip())
+                self.assertFalse(result["login_wall"])
+                self.assertTrue(any(
+                    reason.startswith("notebook:") and f"minimum {minimum} chars" in reason
+                    for reason in result["reasons"]
+                ))
+
+    def test_notebook_meeting_minimum_skips_opencli(self):
+        self.notebook.return_value = ("Notebook", self.complete_body)
+
+        result = fetch_smart.fetch_smart(self.url)
+
+        self.assertEqual(result["method"], "notebook")
+        self.assertEqual(result["text"], self.complete_body.strip())
+        self.opencli.assert_not_called()
+
+    def test_notebook_low_tag_alone_does_not_trigger_opencli(self):
+        result = fetch_smart.fetch_smart(self.url, min_chars=30)
+
+        self.assertEqual(result["method"], "notebook:low")
+        self.assertEqual(result["text"], self.notebook_body.strip())
+        self.assertFalse(result["login_wall"])
+        self.opencli.assert_not_called()
+
+    def test_opencli_failure_preserves_best_candidate_and_records_failure(self):
+        self.opencli.side_effect = RuntimeError("session unavailable")
+        for http_body, notebook_body, method in (
+            ("Partial body", self.notebook_body, "notebook:low"),
+            (self.notebook_body, "Partial body", "http:low"),
+        ):
+            with self.subTest(best_method=method):
+                self.http.return_value = ("HTTP", http_body)
+                self.notebook.return_value = ("Notebook", notebook_body)
+                self.opencli.reset_mock()
+                result = fetch_smart.fetch_smart(self.url)
+
+                self.opencli.assert_called_once()
+                self.assertEqual(result["method"], method)
+                self.assertEqual(result["text"], self.notebook_body.strip())
+                self.assertIn("opencli: session unavailable", result["reasons"])
+
+    def test_opencli_uses_only_remaining_shared_budget_after_notebook(self):
+        def notebook(_url, _deadline):
+            self.clock = fetch_smart.FETCH_BUDGET_SECONDS - 2.0
+            return "Notebook", self.notebook_body
+
+        self.notebook.side_effect = notebook
+        result = fetch_smart.fetch_smart(self.url)
+
+        self.opencli.assert_called_once_with(self.url, timeout=2.0)
+        self.assertEqual(result["method"], "opencli")
+
+    def test_exhausted_budget_keeps_notebook_body_without_starting_opencli(self):
+        def notebook(_url, _deadline):
+            self.clock = fetch_smart.FETCH_BUDGET_SECONDS
+            return "Notebook", self.notebook_body
+
+        self.notebook.side_effect = notebook
+        result = fetch_smart.fetch_smart(self.url)
+
+        self.opencli.assert_not_called()
+        self.assertEqual(result["text"], self.notebook_body.strip())
+        self.assertIn(
+            f"opencli: fetch timed out after {fetch_smart.FETCH_BUDGET_SECONDS:g}s",
+            result["reasons"],
+        )
+
+    def test_adequate_http_body_keeps_fast_path_with_notebook_configured(self):
+        self.http.return_value = ("HTTP", self.complete_body)
+
+        result = fetch_smart.fetch_smart(self.url)
+
+        self.assertEqual(result["method"], "http")
+        self.notebook.assert_not_called()
+        self.opencli.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

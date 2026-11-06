@@ -182,6 +182,11 @@ research digest --state tree.json --out report.md     # 输出是汇总骨架，
 | `rss_reader` | 订阅源轮转读取 |
 | `collect_browser` | 登录态平台（小红书 / 知乎 / Reddit） |
 
+`fetch_smart --route auto` 中，Open Notebook 只参与现有候选比较，不因排名更高就提前结束路由。
+各通道都没有非空正文达到本次 `--min-chars`（默认 800），或明确检测到登录墙时，才在剩余预算内尝试一次已登录会话。
+字数不足不等于登录墙；`:low` 标签本身也不触发登录态重试，短公告可显式降低 `--min-chars`。
+沿用 30 秒共享预算，不为兜底重置计时；失败或预算耗尽时保留原有最佳候选并在 `reasons` 中记录原因。正文是否完整、是否回答问题仍由调用模型判断。
+
 全部支持 `--json`。统一外壳：`{ok, schema_version, command, data}`，失败为 `{ok:false, error:{code,message,hint,next_command}}`。
 退出码：`0` 成功、`2` 参数/校验错、`3` 状态不允许、`4` 采集或网络失败、`6` 需要用户操作（看 `error.asked_as`）。
 

@@ -1821,11 +1821,14 @@ def fetch_smart(url: str, min_chars: int = 800, route: str = "auto", scroll: int
                 if best is not None else None
             )
             if result["text"] and (best_rank is None or rank > best_rank):
-                if reasons:
-                    result["reasons"] = reasons
-                return result
-            if reasons and best is not None:
-                best["reasons"] = reasons
+                best = result
+            # Notebook competes with the other candidates; a better rank must
+            # not bypass the existing below-minimum/login-wall OpenCLI fallback.
+            # Length is a routing threshold, not evidence of a login wall.
+            if result["text"] and result["chars"] >= min_chars:
+                usable_body_found = True
+            elif result["chars"] < min_chars:
+                reasons.append(f"notebook: {result['chars']} chars (minimum {min_chars} chars)")
         except NotebookError as exc:
             reasons.append(exc.reason)
             notebook_login_wall_detected = exc.reason == "notebook_login_wall"
