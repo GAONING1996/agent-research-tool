@@ -96,7 +96,7 @@ python research.py run --state research.json --ready --fetch 3 --json --full   #
 python research.py show --state research.json --node n0 --json
 python research.py apply-review --state research.json --file review.json --json
 python research.py claim add --state research.json --node n0 \
-  --text "结论" --evidence E1,E2 --support dual --json
+  --text "结论" --evidence "E1,E2" --support dual --json
 python research.py digest --state research.json --json
 ```
 

@@ -13,8 +13,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 try:
-    from . import config
+    from . import capabilities, config
 except ImportError:
+    import capabilities
     import config
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -397,10 +398,10 @@ def search_dual(query: str, limit: int = 10, lang: str = "") -> dict[str, Any]:
     _load_local_env()
     started = time.monotonic()
     executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dual-search")
-    futures = {
-        executor.submit(_search_tavily, query, limit): "tavily",
-        executor.submit(_search_searxng, query, lang): "searxng",
-    }
+    tavily_declined = "TAVILY_API_KEY" in capabilities.declined() and not config.get("TAVILY_API_KEY")
+    futures = {executor.submit(_search_searxng, query, lang): "searxng"}
+    if not tavily_declined:
+        futures[executor.submit(_search_tavily, query, limit)] = "tavily"
     done, pending = wait(futures, timeout=OVERALL_TIMEOUT_SECONDS)
     errors: dict[str, str] = {}
     results_by_source: dict[str, list[dict[str, Any]]] = {"tavily": [], "searxng": []}

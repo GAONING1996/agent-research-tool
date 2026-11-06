@@ -126,6 +126,21 @@ class SearchDualTests(unittest.TestCase):
         self.assertEqual(len(payload["results"]), 1)
         self.assertIn("offline", payload["errors"]["searxng"])
 
+    def test_declined_tavily_is_skipped_without_warning(self):
+        rows = [{"url": "https://example.com", "title": "Result", "content": "text"}]
+        with (
+            patch.object(search_dual.capabilities, "declined", return_value={"TAVILY_API_KEY"}),
+            patch.object(search_dual.config, "get", return_value=""),
+            patch.object(search_dual, "_search_tavily") as tavily,
+            patch.object(search_dual, "_search_searxng", return_value=rows),
+        ):
+            payload = search_dual.search_dual("query")
+
+        tavily.assert_not_called()
+        self.assertEqual(payload["errors"], {})
+        self.assertFalse(payload["degraded"])
+        self.assertEqual(len(payload["results"]), 1)
+
     def test_both_sources_fail_and_cli_returns_three(self):
         stdout = io.StringIO()
         stderr = io.StringIO()

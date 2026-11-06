@@ -16,14 +16,20 @@ from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 
-# .env files are looked up next to the package and one level up (legacy Hermes layout).
-DOTENV_CANDIDATES = (
+# Prefer the caller's project .env, then check package and legacy Hermes locations.
+_PACKAGE_DOTENV_CANDIDATES = (
     PACKAGE_DIR / ".env",
     PACKAGE_DIR.parent / ".env",
     PACKAGE_DIR.parent.parent / ".env",
 )
+DOTENV_CANDIDATES = (Path.cwd() / ".env", *_PACKAGE_DOTENV_CANDIDATES)
 
 _cache: dict[str, dict[str, str]] | None = None
+
+
+def _dotenv_candidates() -> tuple[Path, ...]:
+    current = Path.cwd() / ".env"
+    return tuple(dict.fromkeys((current, *_PACKAGE_DOTENV_CANDIDATES)))
 
 
 def data_dir() -> Path:
@@ -69,7 +75,7 @@ def _sources() -> dict[str, dict[str, str]]:
     global _cache
     if _cache is None:
         project: dict[str, str] = {}
-        for path in DOTENV_CANDIDATES:
+        for path in _dotenv_candidates():
             project.update(_parse_env_file(path))
         _cache = {"project": project, "user": _parse_env_file(config_file())}
     return _cache
@@ -83,7 +89,7 @@ def refresh() -> None:
 
 def find_env_file() -> Path | None:
     """First .env that actually exists, in lookup order."""
-    for path in DOTENV_CANDIDATES:
+    for path in _dotenv_candidates():
         if path.is_file():
             return path
     return None
@@ -173,6 +179,6 @@ def describe() -> dict[str, str]:
         "package_dir": str(PACKAGE_DIR),
         "data_dir": str(data_dir()),
         "config_file": str(config_file()),
-        "dotenv_files": ", ".join(str(path) for path in DOTENV_CANDIDATES),
+        "dotenv_files": ", ".join(str(path) for path in _dotenv_candidates()),
         "proxy": proxy_url() or "(none)",
     }

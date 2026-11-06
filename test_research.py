@@ -29,6 +29,27 @@ class ResearchTests(unittest.TestCase):
     def setUp(self):
         self.state_path = Path(__file__).resolve().parent / f".research_test_{os.getpid()}_{id(self)}.json"
 
+    def test_current_directory_dotenv_precedes_user_config(self):
+        config = research.config
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory(prefix="research-config-") as tmp:
+            project_dir = Path(tmp)
+            (project_dir / ".env").write_text("RESEARCH_TEST_PROJECT_ENV=project\n", encoding="utf-8")
+            user_config = project_dir / "config.env"
+            user_config.write_text("RESEARCH_TEST_PROJECT_ENV=user\n", encoding="utf-8")
+
+            with mock.patch.object(config, "config_file", return_value=user_config), mock.patch.dict(
+                os.environ, {"RESEARCH_TEST_PROJECT_ENV": ""}
+            ):
+                config.refresh()
+                try:
+                    os.chdir(project_dir)
+                    self.assertEqual(config.find_env_file(), project_dir / ".env")
+                    self.assertEqual(config.get("RESEARCH_TEST_PROJECT_ENV"), "project")
+                finally:
+                    os.chdir(original_cwd)
+                    config.refresh()
+
     def tearDown(self):
         for path in self.state_path.parent.glob(self.state_path.name + "*"):
             if path.is_file():
@@ -1516,6 +1537,13 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(research._citation_map(research.read_state(self.state_path), "n0"), {
             "E1": "i2", "E2": "i1",
         })
+        self.assertEqual(
+            [
+                (item["ref"], item["id"])
+                for item in research.show_data(research.read_state(self.state_path), "n0")["evidence"]
+            ],
+            [("E1", "i2"), ("E2", "i1")],
+        )
 
         state = research.read_state(self.state_path)
         items = {item["id"]: item for item in state["items"]}
@@ -1529,6 +1557,35 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(research._citation_map(research.read_state(self.state_path), "n0"), {
             "E1": "i1", "E2": "i2",
         })
+
+    def test_collector_subprocess_runs_from_invocation_directory(self):
+        slot = mock.Mock()
+        result = SimpleNamespace(stdout="{}", stderr="", returncode=0)
+        with (
+            mock.patch.object(research, "_acquire_collector_slot", return_value=slot),
+            mock.patch.object(research.subprocess, "run", return_value=result) as run,
+        ):
+            payload, error, started = research._command_json(
+                ["collector"], self.state_path, research.time.monotonic() + 10,
+            )
+
+        self.assertEqual(payload, {})
+        self.assertIsNone(error)
+        self.assertTrue(started)
+        self.assertEqual(run.call_args.kwargs["cwd"], Path.cwd())
+
+    def test_fetch_subprocess_runs_from_invocation_directory(self):
+        result = SimpleNamespace(stdout='{"text":"body"}', stderr="", returncode=0)
+        with (
+            mock.patch.dict(os.environ, {"OPEN_NOTEBOOK_URL": ""}),
+            mock.patch.object(research, "_dotenv_value", return_value=""),
+            mock.patch.object(research.subprocess, "run", return_value=result) as run,
+        ):
+            payload, error = research._fetch_payload("https://example.com/article")
+
+        self.assertEqual(payload["text"], "body")
+        self.assertIsNone(error)
+        self.assertEqual(run.call_args.kwargs["cwd"], Path.cwd())
 
     def test_claim_add_list_delete_validate_and_report_ledger(self):
         self.prepare_evidence_state()
@@ -1915,8 +1972,10 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(show_data["status"], "awaiting_review")
         self.assertEqual(show_data["evidence_count"], 1)
         self.assertIn("id", result_contract["show"]["evidence_fields"])
+        self.assertIn("ref", result_contract["show"]["evidence_fields"])
         evidence_ref = contract["evidence_ref_rule"]["format"].replace("#", "1")
         self.assertEqual(len(show_data["evidence"]), 1)
+        self.assertEqual(show_data["evidence"][0]["ref"], evidence_ref)
         gap_id = "g1"
         review = {
             "node_id": node_id,

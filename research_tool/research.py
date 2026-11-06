@@ -706,7 +706,7 @@ def _unpack_reviews(payload: Any) -> list[dict[str, Any]]:
 
 def _citation_map(state: dict[str, Any], node_id: str) -> dict[str, str]:
     data = show_data(state, node_id, chars=0)
-    return {f"E{index}": str(item["id"]) for index, item in enumerate(data["evidence"], 1)}
+    return {str(item["ref"]): str(item["id"]) for item in data["evidence"]}
 
 
 def _child_text_refs(value: Any) -> list[str]:
@@ -1253,7 +1253,7 @@ def _command_json(
             try:
                 completed = subprocess.run(
                     command,
-                    cwd=SCRIPT_DIR,
+                    cwd=Path.cwd(),
                     capture_output=True,
                     text=True,
                     encoding="utf-8",
@@ -1738,7 +1738,7 @@ def _fetch_payload(url: str, scroll: int | None = None) -> tuple[dict[str, Any] 
     try:
         completed = subprocess.run(
             command,
-            cwd=SCRIPT_DIR,
+            cwd=Path.cwd(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -2547,8 +2547,11 @@ def show_data(state: dict[str, Any], node_id: str, chars: int = 1500) -> dict[st
         ranked.append((-min(len(body), 100000), not bool(body), -overlap, position, item, body))
     ranked.sort(key=lambda entry: entry[:4])
     evidence = []
-    for _negative_len, _has_no_body, _negative_overlap, _position, item, body in ranked:
+    for display_index, (_negative_len, _has_no_body, _negative_overlap, _position, item, body) in enumerate(
+        ranked, 1
+    ):
         row = {
+            "ref": f"E{display_index}",
             "id": item.get("id"),
             "title": item.get("title", ""),
             "url": item.get("url", ""),
@@ -2673,14 +2676,14 @@ def prompt_text(
         lines.append("（无证据，先报告 not_found 并给出 1-3 个可执行的子问题）")
     else:
         for display_index, item in enumerate(data["evidence"], 1):
-            index = display_index
+            ref = item["ref"]
             body = item["body_preview"]
             body = "\n".join(line.strip() for line in body.splitlines() if line.strip())
             if item["body_truncated"]:
                 body += f"…（已截断，全文 {item['chars']} 字）"
             lines.extend([
-                f"[E{index}] {item['title']} {_body_status(item)}",
-                *([f"E{index} → {item['id']}"] if include_citation_map else []),
+                f"[{ref}] {item['title']} {_body_status(item)}",
+                *([f"{ref} → {item['id']}"] if include_citation_map else []),
                 f"域名：{item['domain'] or '-'}｜时间：{item['published'] or '-'}｜版本时效：{item['version_note']}｜字数：{item['chars']}｜抓取方式：{item['method']}",
                 body,
             ])
@@ -3642,7 +3645,7 @@ def contract_data(parser: argparse.ArgumentParser | None = None) -> dict[str, An
             "arguments": claim_arguments,
             "rules": {
                 "--text": "must be non-empty",
-                "--evidence": "one or more comma-separated E# references local to --node",
+                "--evidence": "one or more comma-separated E# references local to --node; quote values such as E1,E2 in PowerShell",
                 "--counter": "optional comma-separated E# references local to --node",
                 "--version": "optional version label",
                 "--as-of": "optional date label",
@@ -3703,8 +3706,8 @@ def contract_data(parser: argparse.ArgumentParser | None = None) -> dict[str, An
             },
             "show": {
                 "data_fields": ["node_id", "question", "status", "evidence_count", "evidence"],
-                "evidence_fields": ["id", "title", "url", "domain", "published", "chars", "method", "body_preview"],
-                "evidence_ids": "display references are E1, E2, ... in evidence order",
+                "evidence_fields": ["ref", "id", "title", "url", "domain", "published", "chars", "method", "body_preview"],
+                "evidence_ids": "ref values are E1, E2, ... in display order",
             },
             "apply-review": {
                 "data": "updated state_document; node status follows status_transitions",

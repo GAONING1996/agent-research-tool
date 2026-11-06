@@ -158,7 +158,7 @@ research set-node --state tree.json --node n0 --queries "查询1" "查询2" --co
 research run --state tree.json --ready --fetch 4
 research show --state tree.json --node n0 --chars 1500
 research apply-review --state tree.json --file review.json
-research claim add --state tree.json --node n0 --text "结论" --evidence E1,E2 --support dual
+research claim add --state tree.json --node n0 --text "结论" --evidence "E1,E2" --support dual
 research status --state tree.json
 research digest --state tree.json --out report.md     # 输出是汇总骨架，不是筛净的终稿
 ```
@@ -216,7 +216,8 @@ codex mcp add research -- research-mcp
 3. `research set-node ...` 写查询；
 4. `research run --ready --fetch 3` 拿到 ≥1 条正文（`output` 里 `bodies > 0`）；
 5. `research show` 读到正文原文；
-6. `research apply-review` → `claim add` → `digest` 出汇总。
+6. `research gaps --state tree.json` 复核本轮缺口；没有缺口时执行 `research gaps --state tree.json --no-gaps --reviewed-node n0 --note "复核依据"` 留记录，有缺口时记录并处理到 `covered` 或 `dropped`；
+7. `research apply-review` → `claim add` → `digest` 出汇总。PowerShell 下 `--evidence` 的逗号列表要加引号，例如 `--evidence "E1,E2"`。
 
 哪一步需要“我记得应该这样”，就是文档还缺东西，请开 issue。
 
