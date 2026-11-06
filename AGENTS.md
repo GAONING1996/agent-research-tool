@@ -30,6 +30,13 @@ python -m pip install ".[pdf,mcp]"
 - 查看位置：`research config where --json`。
 - 写入密钥：`echo '{"TAVILY_API_KEY":"..."}' | research config set --stdin --json`（不回显、不进仓库）。
 
+### doctor 结果怎么读
+
+- `ok:true` 且 `needs_user:false`：全部就绪，直接开工。
+- `needs_user:true`：`requirements[]` 里有需要用户决定的东西，**不代表核心调研不能跑**。先看 `capabilities[]` 里 `TAVILY_API_KEY` 或 `SEARXNG_URL` 是否有 `ready`：有一个就说明网页搜索可用，可以先把 `requirements[].asked_as` 转给用户，同时开始不需要 key 的部分。
+- 某项确实拿不到：`research config decline --key X --reason "..."`，之后该项不再出现在 `requirements[]`，运行时的缺配置告警也会被过滤掉。
+- 退出码 6 表示需要人；`ok:false` 才表示自检有硬失败。
+
 ### 配置铁律：先提示用户，不许静默降级
 
 1. 开工前先 `research doctor --json`。

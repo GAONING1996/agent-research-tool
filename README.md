@@ -135,7 +135,7 @@ research brief --matrix --file brief.json --facet 换版 --facet 价格 --budget
                                                         # 机械生成查询候选，挑哪些由 agent 决定
 
 # 每一轮跑完：先看缺什么，再决定补不补
-research gaps --state tree.json                      # 事实观察：0 命中的叫法、没证据的节点、没成枝的视角
+research gaps --state tree.json                      # 事实观察：0 命中的叫法、没证据的节点、没成枝的视角（视角按名称字面匹配，换说法会漏匹配，仅供参考）
 research gaps --state tree.json --file gaps.json --spawn
                                                      # 记录本轮缺口，并把开放缺口变成子节点
 research gaps --state tree.json --resolve g1 --status covered --note "已补英文名"
@@ -144,7 +144,7 @@ research gaps --state tree.json --resolve g1 --status covered --note "已补英�
 # 补完或标明放弃后才放行；确实要带缺口出稿加 --allow-open-gaps
 
 # 第二步：带着解析卡建树
-research init "问题" --state tree.json --brief brief.json
+research init "问题" --state tree.json --brief brief.json   # brief 已写 purpose/deliverable 时不要再传这两个参数；同时传且值不同会直接报错
 ```
 
 ```bash

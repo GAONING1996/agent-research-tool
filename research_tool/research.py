@@ -1009,7 +1009,7 @@ def gap_observations(state: dict[str, Any]) -> dict[str, Any]:
         for row in brief.get("perspectives") or []:
             name = str((row or {}).get("name") or "").strip()
             if name and name.casefold() not in questions:
-                perspectives.append({"name": name, "note": "这个视角目前没有任何节点在问，但要不要成枝由你判断。"})
+                perspectives.append({"name": name, "note": "该视角名称没有出现在任何节点的问题或背景里（按字面匹配，换了说法就匹配不到）；要不要成枝由你判断。"})
 
     open_rows = [gap for gap in _all_gaps(state) if gap.get("status") == "open"]
     return {
