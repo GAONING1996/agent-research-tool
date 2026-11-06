@@ -10,9 +10,18 @@
 ## 安装与配置（agent 也要知道流程）
 
 ```bash
-pipx install "agent-research-tool"          # 或 pip install .
-pip install "agent-research-tool[pdf,mcp]"  # 可选：PDF 直读 / MCP 入口
+pipx install "git+https://github.com/GAONING1996/agent-research-tool.git"
+pipx inject agent-research-tool PyMuPDF mcp   # 可选：PDF 直读 / MCP 入口
 ```
+
+已经 clone 到本地时，在仓库根目录用 `.` 安装：
+
+```bash
+python -m pip install .
+python -m pip install ".[pdf,mcp]"
+```
+
+包尚未发布到 PyPI，不要写裸包名 `agent-research-tool`，那会装到同名的其他发行物。
 
 - 主命令 `research`，可选 MCP 入口 `research-mcp`（stdio）。
 - 数据目录（状态、锁、Notebook 临时文件、用户配置）：

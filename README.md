@@ -155,7 +155,7 @@ research show --state tree.json --node n0 --chars 1500
 research apply-review --state tree.json --file review.json
 research claim add --state tree.json --node n0 --text "结论" --evidence E1,E2 --support dual
 research status --state tree.json
-research digest --state tree.json
+research digest --state tree.json --out report.md     # 输出是汇总骨架，不是筛净的终稿
 ```
 
 规则：

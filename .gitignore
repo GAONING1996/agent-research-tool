@@ -30,6 +30,7 @@
 !topic_brief.py
 !test_topic_brief.py
 !test_gaps.py
+!test_doctor_requirements.py
 
 # 忽略规则（即使被上面的白名单匹配）
 __pycache__/

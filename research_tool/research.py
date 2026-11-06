@@ -2953,6 +2953,53 @@ def login_session_checks() -> list[dict[str, str]]:
     return [chrome_check, opencli_check]
 
 
+
+def _human_requirements(capability_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """Build the user-facing requirement list. One ready search provider satisfies both."""
+    pending_human = [
+        row for row in capability_rows
+        if row["state"] == "missing" and row["tier"] in {"required", "user_key"}
+    ]
+    search_keys = {"TAVILY_API_KEY", "SEARXNG_URL"}
+    search_ready = any(row["state"] == "ready" and row["key"] in search_keys for row in capability_rows)
+    if search_ready:
+        pending_human = [row for row in pending_human if row["key"] not in search_keys]
+    search_missing = {row["key"] for row in pending_human} >= search_keys
+    if search_missing:
+        pending_human = [row for row in pending_human if row["key"] not in search_keys]
+        requirements = [{
+            "key": "SEARCH_PROVIDER",
+            "required": True,
+            "tier": "required",
+            "status": "missing",
+            "asked_as": "需要你给我一个搜索 key，二选一即可：Tavily（tavily.com 免费注册）或一个 SearXNG 地址（自己 docker 起也行）。",
+            "how_to_fix": "echo '{\"TAVILY_API_KEY\":\"...\"}' | research config set --stdin  或设置 SEARXNG_URL",
+            "missing_effect": "两个都没有则无法搜索，调研无法开始。",
+            "can_decline": False,
+            "decline_command": "",
+        }]
+    else:
+        requirements = []
+    requirements += [
+        {
+            "key": row["key"],
+            "required": row["tier"] == "required",
+            "tier": row["tier"],
+            "status": "missing",
+            "asked_as": row["asked_as"],
+            "how_to_fix": row["how_to_get"],
+            "missing_effect": row["missing_effect"],
+            "can_decline": True,
+            "decline_command": f"research decline-placeholder --key {row['key']}",
+        }
+        for row in pending_human
+    ]
+    for row in requirements:
+        if row["can_decline"]:
+            row["decline_command"] = f"research config decline --key {row['key']} --reason \"用户无法提供\""
+    return requirements, bool(pending_human) or search_missing
+
+
 def doctor_data() -> dict[str, Any]:
     checks = []
     python_ok = sys.version_info >= (3, 10)
@@ -3106,46 +3153,10 @@ def doctor_data() -> dict[str, Any]:
             "No action needed." if notebook_status == "ok" else "Check that Open Notebook is running and OPEN_NOTEBOOK_URL is correct.",
         ))
     capability_rows = capabilities.statuses()
-    pending_human = [
-        row for row in capability_rows
-        if row["state"] == "missing" and row["tier"] in {"required", "user_key"}
-    ]
+    requirements, needs_user = _human_requirements(capability_rows)
     pending_agent = [
         row for row in capability_rows
         if row["state"] == "missing" and row["tier"] in {"agent_install", "local_service"}
-    ]
-    search_keys = {"TAVILY_API_KEY", "SEARXNG_URL"}
-    search_missing = {row["key"] for row in pending_human} >= search_keys
-    if search_missing:
-        pending_human = [row for row in pending_human if row["key"] not in search_keys]
-        merged = dict(capabilities.BY_KEY["TAVILY_API_KEY"].__dict__)
-        merged["key"] = "SEARCH_PROVIDER"
-        requirements = [{
-            "key": "SEARCH_PROVIDER",
-            "required": True,
-            "tier": "required",
-            "status": "missing",
-            "asked_as": "需要你给我一个搜索 key，二选一即可：Tavily（tavily.com 免费注册）或一个 SearXNG 地址（自己 docker 起也行）。",
-            "how_to_fix": "echo '{\"TAVILY_API_KEY\":\"...\"}' | research config set --stdin  或设置 SEARXNG_URL",
-            "missing_effect": "两个都没有则无法搜索，调研无法开始。",
-            "can_decline": False,
-            "decline_command": "",
-        }]
-    else:
-        requirements = []
-    requirements += [
-        {
-            "key": row["key"],
-            "required": row["tier"] == "required",
-            "tier": row["tier"],
-            "status": "missing",
-            "asked_as": row["asked_as"],
-            "how_to_fix": row["how_to_get"],
-            "missing_effect": row["missing_effect"],
-            "can_decline": True,
-            "decline_command": f"research config decline --key {row['key']} --reason \"用户无法提供\"",
-        }
-        for row in pending_human
     ]
     return {
         "ok": all(check["status"] != "fail" for check in checks) and capabilities.search_ready(),
@@ -3156,7 +3167,7 @@ def doctor_data() -> dict[str, Any]:
              "missing_effect": row["missing_effect"]}
             for row in pending_agent
         ],
-        "needs_user": bool(pending_human) or search_missing,
+        "needs_user": needs_user,
         "requirements": requirements,
         "config": config.describe(),
     }
@@ -4039,7 +4050,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             failure, run_warnings = _run_collection_failure({**state, "_path": args.state}, node_ids)
             if run_warnings:
-                state["warnings"] = run_warnings
+                declined = capabilities.declined()
+                state["warnings"] = [
+                    warning for warning in run_warnings
+                    if not any(key in str(warning) for key in declined)
+                ]
             if failure:
                 raise failure
             if args.as_json:

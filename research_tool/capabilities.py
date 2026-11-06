@@ -51,7 +51,7 @@ REGISTRY: tuple[Capability, ...] = (
         tier="required",
         why="第二路搜索，和 Tavily 交叉验证；也可以用公共实例或本机 docker。",
         asked_as="如果你不想用 Tavily，可以给我一个 SearXNG 地址（自己 docker 起一个也算），二选一即可。",
-        how_to_get="docker run -d --name searxng -p 8080:8080 searxng/searxng，然后设置 SEARXNG_URL=http://127.0.0.1:8080",
+        how_to_get="docker run -d --name searxng -p 8080:8080 searxng/searxng，然后设置 SEARXNG_URL=http://127.0.0.1:8080；复用已有实例时写成实际地址（如 8081）",
         missing_effect="少一路搜索源，交叉验证能力下降；仍可用 Tavily 单路工作。",
         probe="env",
         alternatives=["TAVILY_API_KEY"],
