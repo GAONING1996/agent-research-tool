@@ -140,6 +140,9 @@ research gaps --state tree.json --file gaps.json --spawn
                                                      # 记录本轮缺口，并把开放缺口变成子节点
 research gaps --state tree.json --resolve g1 --status covered --note "已补英文名"
 
+# 出稿会拦：还有 open 缺口时 digest 直接失败（退出码 3），
+# 补完或标明放弃后才放行；确实要带缺口出稿加 --allow-open-gaps
+
 # 第二步：带着解析卡建树
 research init "问题" --state tree.json --brief brief.json
 ```

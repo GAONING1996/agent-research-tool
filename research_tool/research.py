@@ -3334,6 +3334,8 @@ def build_parser() -> ResearchArgumentParser:
     digest_parser.add_argument("--state", required=True, metavar="FILE")
     digest_parser.add_argument("--out", metavar="FILE")
     digest_parser.add_argument("--json", action="store_true", dest="as_json")
+    digest_parser.add_argument("--allow-open-gaps", action="store_true",
+                               help="明知有未处理缺口仍要出稿；缺口会写在汇总顶部")
 
     doctor_parser = subparsers.add_parser("doctor", help="check local research prerequisites")
     doctor_parser.add_argument("--json", action="store_true", dest="as_json")
@@ -4215,7 +4217,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "digest":
             state_path = Path(args.state).resolve()
-            rendered = digest_text(read_state(state_path))
+            digest_state = read_state(state_path)
+            open_gaps = [gap for gap in _all_gaps(digest_state) if gap.get("status") == "open"]
+            if open_gaps and not args.allow_open_gaps:
+                listing = "; ".join(f"{gap.get('id')}: {gap.get('what')}" for gap in open_gaps)
+                raise ResearchCLIError(
+                    "还有未处理的缺口：" + listing + "。先 gaps --spawn 补齐或 --resolve 标 covered/dropped；"
+                    "确实要带缺口出稿，加 --allow-open-gaps。", code=3,
+                )
+            rendered = digest_text(digest_state)
             output_path = None
             if args.out:
                 out_path = Path(args.out).resolve()

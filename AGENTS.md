@@ -62,6 +62,7 @@ python research.py gaps --state tree.json --file gaps.json --spawn
 `gaps.json` 每条写清：what（缺什么）、why（凭什么判断缺）、angle（换什么角度）、next_question（下一轮具体问法）、queries（初步查询词）。
 只有两种方式结束一个缺口：`--resolve <id> --status covered --note "补了什么"`，或 `--status dropped --note "为什么放弃"`。
 没收口的缺口会出现在 status 和 digest 顶部，不能当成已经查过。
+`digest` 遇到 open 缺口会直接失败（退出码 3）；补齐或标 dropped 后才放行，确实要带缺口出稿加 `--allow-open-gaps`。
 
 ```bash
 python research.py init "调研问题" --state research.json \

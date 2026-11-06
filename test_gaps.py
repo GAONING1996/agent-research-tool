@@ -71,6 +71,20 @@ class GapTests(unittest.TestCase):
         research.resolve_gap(self.state, "g1", "covered", "已补")
         self.assertEqual(research.gap_observations(research.read_state(self.state))["open_gaps"], [])
 
+    def test_digest_is_blocked_until_gaps_are_handled(self):
+        from contextlib import redirect_stderr, redirect_stdout
+        import io
+
+        research.record_gaps(self.state, [{"what": "缺口", "next_question": "问题"}])
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            blocked = research.main(["digest", "--state", str(self.state), "--json"])
+            allowed = research.main(["digest", "--state", str(self.state), "--allow-open-gaps", "--json"])
+        self.assertEqual(blocked, 3)
+        self.assertEqual(allowed, 0)
+        research.resolve_gap(self.state, "g1", "covered", "已补")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(research.main(["digest", "--state", str(self.state), "--json"]), 0)
+
     def test_observations_report_aliases_without_hits(self):
         observed = research.gap_observations(research.read_state(self.state))
         self.assertEqual(observed["facts"]["evidence_total"], 0)
