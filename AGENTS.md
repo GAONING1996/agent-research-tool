@@ -73,12 +73,16 @@ python research.py brief --matrix --file brief.json --facet 子问题1 --facet �
 ```bash
 python research.py gaps --state tree.json            # 先看事实观察
 python research.py gaps --state tree.json --file gaps.json --spawn
+# 确认本轮没有缺口时也要留记录，并写明复核依据
+python research.py gaps --state tree.json --no-gaps --reviewed-node n0 --note "检查 n0 的证据、查询和交付要求后，没有发现待补事实"
 ```
 
 `gaps.json` 每条写清：what（缺什么）、why（凭什么判断缺）、angle（换什么角度）、next_question（下一轮具体问法）、queries（初步查询词）。
 只有两种方式结束一个缺口：`--resolve <id> --status covered --note "补了什么"`，或 `--status dropped --note "为什么放弃"`。
-没收口的缺口会出现在 status 和 digest 顶部，不能当成已经查过。
-`digest` 遇到 open 缺口会直接失败（退出码 3）；补齐或标 dropped 后才放行，确实要带缺口出稿加 `--allow-open-gaps`。
+至少要记录一轮缺口复核；没有缺口时用 `--no-gaps --reviewed-node`（可重复）列出检查过的节点，并用 `--note` 写明理由。工具只验证节点 ID 存在，不验证复核范围是否充分或理由质量；判断仍由模型负责。
+未收口的缺口会出现在 status 和 digest 顶部，不能当成已经查过。status/gaps 还会列出没有按字面进入任何节点问题、查询或反查查询的 brief 别名；这是查询文本观察，不代表结果命中。
+视角与节点问题会并列呈现给模型，工具不自动判定语义覆盖。
+`digest` 在没有缺口复核记录或仍有 open 缺口时会失败（退出码 3）；补齐或标 dropped 后才放行，确实要带 open 缺口出稿加 `--allow-open-gaps`，但它不能跳过缺口复核记录。
 
 ```bash
 python research.py init "调研问题" --state research.json \

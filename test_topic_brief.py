@@ -73,6 +73,23 @@ class TopicBriefTests(unittest.TestCase):
         self.assertEqual(rows["承压设备无损检测"]["body_hits"], 1)
         self.assertEqual(result["evidence_total"], 2)
 
+    def test_alias_query_observation_checks_literal_text_not_result_hits(self):
+        brief = sample(aliases=[
+            {"value": "Python 3.13 new features", "kind": "english", "status": "model"},
+            {"value": "Python 3.13 runtime", "kind": "english", "status": "model"},
+        ])
+        nodes = [{
+            "question": "Python 3.13 overview",
+            "queries": ["PYTHON 3.13 NEW FEATURES"],
+            "counter_queries": ["python    3.13 runtime regressions"],
+        }]
+        self.assertEqual(topic_brief.aliases_without_queries(brief, nodes), [])
+
+        nodes[0]["queries"] = ["Python 3.13 syntax overview"]
+        missing = topic_brief.aliases_without_queries(brief, nodes)
+        self.assertEqual([row["alias"] for row in missing], ["Python 3.13 new features"])
+        self.assertIn("不表示搜索结果是否命中", missing[0]["note"])
+
 
 class BriefCliTests(unittest.TestCase):
     def setUp(self):

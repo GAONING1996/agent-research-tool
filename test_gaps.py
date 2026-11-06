@@ -85,11 +85,79 @@ class GapTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(research.main(["digest", "--state", str(self.state), "--json"]), 0)
 
+    def test_digest_requires_a_gap_review_even_when_open_gaps_are_allowed(self):
+        from contextlib import redirect_stderr, redirect_stdout
+        import io
+
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            code = research.main([
+                "digest", "--state", str(self.state), "--allow-open-gaps", "--json",
+            ])
+        self.assertEqual(code, 3)
+
+    def test_no_gaps_declaration_is_audited_and_unblocks_digest(self):
+        from contextlib import redirect_stderr, redirect_stdout
+        import io
+
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            missing_reason = research.main(["gaps", "--state", str(self.state), "--no-gaps", "--json"])
+        self.assertEqual(missing_reason, 2)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            missing_nodes = research.main([
+                "gaps", "--state", str(self.state), "--no-gaps", "--note", "检查后没有缺口。", "--json",
+            ])
+        self.assertEqual(missing_nodes, 2)
+        with self.assertRaises(ValueError):
+            research.record_gaps(
+                self.state, [], no_gaps_reason="检查后没有缺口。", reviewed_nodes=["missing"],
+            )
+
+        note = "逐项检查了已审节点、别名查询和交付要求，没有发现待补事实。"
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            recorded = research.main([
+                "gaps", "--state", str(self.state), "--no-gaps", "--reviewed-node", "n0",
+                "--note", note, "--json",
+            ])
+            digest = research.main(["digest", "--state", str(self.state), "--json"])
+        self.assertEqual(recorded, 0)
+        self.assertEqual(digest, 0)
+        state = research.read_state(self.state)
+        self.assertTrue(research.gap_review_recorded(state))
+        self.assertEqual(state["gap_rounds"][0]["no_gaps_reason"], note)
+        self.assertEqual(state["gap_rounds"][0]["reviewed_nodes"], ["n0"])
+        rounds = research.gap_observations(state)["review_rounds"]
+        self.assertEqual(rounds[0]["no_gaps_reason"], note)
+        self.assertEqual(rounds[0]["reviewed_nodes"], ["n0"])
+
     def test_observations_report_aliases_without_hits(self):
         observed = research.gap_observations(research.read_state(self.state))
         self.assertEqual(observed["facts"]["evidence_total"], 0)
         self.assertEqual(observed["facts"]["aliases_without_hits"][0]["alias"], "别名A")
         self.assertEqual(observed["facts"]["nodes_without_evidence"][0]["node_id"], "n0")
+
+    def test_observations_report_aliases_absent_from_query_text(self):
+        observed = research.gap_observations(research.read_state(self.state))
+        self.assertEqual(observed["facts"]["aliases_without_queries"][0]["alias"], "别名A")
+
+        research.set_node(self.state, "n0", queries=["研究别名A的资料"])
+        observed = research.gap_observations(research.read_state(self.state))
+        self.assertEqual(observed["facts"]["aliases_without_queries"], [])
+        status = research.progress_data(research.read_state(self.state), self.state)
+        self.assertEqual(status["aliases_without_queries"], [])
+
+    def test_perspective_context_does_not_claim_literal_coverage(self):
+        state_path = self.tmp / "perspectives.json"
+        brief = dict(self.brief)
+        brief["perspectives"] = [{
+            "name": "语言与运行时",
+            "questions": ["Python 3.13 的语言变化与运行时行为是什么？"],
+        }]
+        research.init_state("Python 3.13 的语言特性和运行时行为", state_path, brief=brief)
+
+        observed = research.gap_observations(research.read_state(state_path))
+        self.assertNotIn("perspectives_without_node", observed["facts"])
+        self.assertEqual(observed["perspective_context"]["perspectives"][0]["name"], "语言与运行时")
+        self.assertEqual(observed["perspective_context"]["node_questions"][0]["node_id"], "n0")
 
 
 if __name__ == "__main__":

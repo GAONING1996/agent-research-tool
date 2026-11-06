@@ -134,14 +134,19 @@ research brief --check --file brief.json                # 结构自检：只查�
 research brief --matrix --file brief.json --facet 换版 --facet 价格 --budget 8
                                                         # 机械生成查询候选，挑哪些由 agent 决定
 
-# 每一轮跑完：先看缺什么，再决定补不补
-research gaps --state tree.json                      # 事实观察：0 命中的叫法、没证据的节点、没成枝的视角（视角按名称字面匹配，换说法会漏匹配，仅供参考）
+# 每一轮跑完：先看事实，再由 agent 判断缺什么
+research gaps --state tree.json                      # 事实观察：0 命中的叫法、未进入查询的别名、没证据的节点
 research gaps --state tree.json --file gaps.json --spawn
                                                      # 记录本轮缺口，并把开放缺口变成子节点
+research gaps --state tree.json --no-gaps --reviewed-node n0 --note "检查 n0 的证据、查询和交付要求后，没有发现待补事实"
+                                                     # 没有缺口也要记录一轮，并写明理由
 research gaps --state tree.json --resolve g1 --status covered --note "已补英文名"
 
-# 出稿会拦：还有 open 缺口时 digest 直接失败（退出码 3），
-# 补完或标明放弃后才放行；确实要带缺口出稿加 --allow-open-gaps
+# digest 要求至少有一轮缺口复核记录；没有记录或仍有 open 缺口时失败（退出码 3）。
+# 零缺口记录要列出检查过的节点（--reviewed-node 可重复）；工具只验证节点 ID，不评判复核是否充分。
+# --allow-open-gaps 只允许带 open 缺口出稿，不能跳过复核记录。
+# 未进入查询按节点问题、配置查询、反查查询中的字面包含判断；不代表搜索结果命中。
+# 视角与节点问题只并列展示，由 agent 判断语义对应关系。
 
 # 第二步：带着解析卡建树
 research init "问题" --state tree.json --brief brief.json   # brief 已写 purpose/deliverable 时不要再传这两个参数；同时传且值不同会直接报错

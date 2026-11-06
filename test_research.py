@@ -232,6 +232,8 @@ class ResearchTests(unittest.TestCase):
             "current": 2, "required": 4, "met": False,
             "counts": {"1": 1, "2": 1, "3": 0, "4": 0}, "missing": 2,
         })
+        self.assertFalse(data["gap_review_recorded"])
+        self.assertIn("gap_review_not_recorded", [reason["code"] for reason in data["unmet_reasons"]])
         self.assertEqual(data["pending_split"], [])
         self.assertEqual(data["pending_split_nodes"], [])
         self.assertEqual(data["open_nodes"], [])
@@ -1588,6 +1590,10 @@ class ResearchTests(unittest.TestCase):
         self.assertIn("## 调研目的\nCompare two strategies", task)
         self.assertIn("## 交付物要求\nA sourced comparison", task)
 
+        research.record_gaps(
+            self.state_path, [], no_gaps_reason="已检查当前研究范围，作为摘要渲染测试没有待补事实。",
+            reviewed_nodes=["n0"],
+        )
         digest_path = Path(str(self.state_path) + ".digest.md")
         with redirect_stdout(StringIO()):
             self.assertEqual(research.main([
@@ -1955,6 +1961,20 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(claim["evidence"], [evidence_ref])
         self.assertEqual(claim["gaps"], [gap_id])
 
+        global_gap_path = Path(str(self.state_path) + ".gaps.json")
+        global_gap_path.write_text(json.dumps({"gaps": [{
+            "what": "The test follow-up needs a separate global gap record.",
+            "why": "The review-local gap does not create a global gap round.",
+            "next_question": "Confirm the global gap round can be resolved.",
+        }]}), encoding="utf-8")
+        global_gaps = json_call([
+            "gaps", "--state", init_data["state_path"], "--file", str(global_gap_path),
+        ], "gaps")
+        self.assertEqual(global_gaps["gaps"][0]["id"], "g1")
+        json_call([
+            "gaps", "--state", init_data["state_path"], "--resolve", "g1", "--status", "dropped",
+            "--note", "The synthetic follow-up is covered by this contract test.",
+        ], "gaps")
         digest = json_call(["digest", "--state", init_data["state_path"]], "digest")
         self.assertTrue(set(result_contract["digest"]["data_fields"]).issubset(digest))
         self.assertEqual(
@@ -2007,6 +2027,10 @@ class ResearchTests(unittest.TestCase):
             "node_id": "n0", "verdict": "answered", "result": "Verified conclusion.", "citations": ["E1"],
         }), encoding="utf-8")
         call_json(["apply-review", "--state", str(self.state_path), "--file", str(review_path)], "apply-review")
+        call_json([
+            "gaps", "--state", str(self.state_path), "--no-gaps", "--reviewed-node", "n0",
+            "--reviewed-node", "n1", "--note", "Checked both existing nodes for this envelope test; no follow-up is needed.",
+        ], "gaps")
         call_json(["digest", "--state", str(self.state_path)], "digest")
 
         tasks_dir = Path(str(self.state_path) + ".tasks")

@@ -82,6 +82,15 @@ def gaps_record(state: str, gaps_json: str, spawn: bool = True) -> str:
 
 
 @mcp.tool()
+def gaps_record_none(state: str, reviewed_nodes: list[str], reason: str) -> str:
+    """Record a reviewed round with no gaps, naming checked nodes and why none were found."""
+    args = ["gaps", "--state", state, "--no-gaps", "--note", reason]
+    for node_id in reviewed_nodes:
+        args.extend(["--reviewed-node", node_id])
+    return _run(args)
+
+
+@mcp.tool()
 def gaps_resolve(state: str, gap_id: str, status: str, note: str = "") -> str:
     """Mark a gap covered or dropped (dropped needs a reason)."""
     return _run(["gaps", "--state", state, "--resolve", gap_id, "--status", status, "--note", note])

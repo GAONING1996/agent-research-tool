@@ -165,3 +165,29 @@ def mentions(brief: Any, items: list[dict[str, Any]]) -> dict[str, Any] | None:
         "by_alias": rows,
         "note": "纯观察：命中不等于相关，未命中也可能是别名写错；不据此判定成败。",
     }
+
+
+def aliases_without_queries(brief: Any, nodes: list[dict[str, Any]]) -> list[dict[str, str]] | None:
+    """List aliases absent from node query text; this does not inspect search results."""
+    if not isinstance(brief, dict):
+        return None
+
+    query_texts = []
+    for node in nodes:
+        query_texts.append(str(node.get("question") or ""))
+        for field in ("queries", "counter_queries"):
+            values = node.get(field)
+            if isinstance(values, list):
+                query_texts.extend(str(value) for value in values if str(value).strip())
+    normalized_queries = [" ".join(query.casefold().split()) for query in query_texts]
+
+    missing = []
+    for alias in _alias_rows(brief):
+        value = str(alias.get("value") or "").strip()
+        normalized_alias = " ".join(value.casefold().split())
+        if normalized_alias and not any(normalized_alias in query for query in normalized_queries):
+            missing.append({
+                "alias": value,
+                "note": "该叫法未按字面出现在任何节点问题、查询或反查查询中；不表示搜索结果是否命中。",
+            })
+    return missing
