@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 
 try:
-    from . import capabilities, config
+    from . import capabilities, config, topic_brief
 except ImportError:
     import capabilities
     import config
+    import topic_brief
 import difflib
 import hashlib
 import json
@@ -493,6 +494,42 @@ def _write_state_unlocked(path: Path, state: dict[str, Any]) -> None:
             os.unlink(temp_name)
 
 
+def _load_brief_file(path: str | Path) -> dict[str, Any]:
+    target = Path(path)
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"brief file not found: {target}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"brief file is not valid JSON: {target}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("brief must be a JSON object")
+    return payload
+
+
+def _brief_task_lines(brief: Any) -> list[str]:
+    if not isinstance(brief, dict):
+        return []
+    aliases = [str(item.get("value") if isinstance(item, dict) else item).strip()
+               for item in (brief.get("aliases") or [])]
+    aliases = [alias for alias in aliases if alias]
+    exclusions = [str(item).strip() for item in (brief.get("exclusions") or []) if str(item).strip()]
+    lines = ["## 主题解析卡"]
+    canonical = str(brief.get("canonical") or "").strip()
+    if canonical:
+        lines.append(f"- 正规名：{canonical}")
+    if aliases:
+        lines.append("- 别名：" + "、".join(aliases[:12]))
+        lines.append("- 查询要求：至少覆盖两种叫法（正规名与别名/英文名各一条）。")
+    if exclusions:
+        lines.append("- 排除（防同名污染）：" + "、".join(exclusions[:8]))
+    for perspective in (brief.get("perspectives") or [])[:5]:
+        if isinstance(perspective, dict) and perspective.get("name"):
+            questions = "；".join(str(q) for q in (perspective.get("questions") or [])[:3])
+            lines.append(f"- 视角 {perspective['name']}：{questions or '（未写问题）'}")
+    return lines if len(lines) > 1 else []
+
+
 def init_state(
     query: str,
     state_path: Path | str | None = None,
@@ -504,6 +541,7 @@ def init_state(
     version_label: str | None = None,
     purpose: str = "",
     deliverable: str = "",
+    brief: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     query = str(query).strip()
     if not query:
@@ -532,6 +570,19 @@ def init_state(
             if name not in options or type(value) is not int or value < 0:
                 raise ValueError(f"invalid platform option: {name}")
             options[name] = value
+    if brief is not None:
+        report = topic_brief.validate(brief)
+        if not report["ok"]:
+            raise ValueError("brief is incomplete: " + ", ".join(report["missing"]))
+        brief_purpose = str(brief.get("purpose") or "").strip()
+        brief_deliverable = str(brief.get("deliverable") or "").strip()
+        if purpose.strip() and brief_purpose and purpose.strip() != brief_purpose:
+            raise ValueError("--purpose 与 brief.purpose 不一致；只保留一个来源。")
+        if deliverable.strip() and brief_deliverable and deliverable.strip() != brief_deliverable:
+            raise ValueError("--deliverable 与 brief.deliverable 不一致；只保留一个来源。")
+        purpose = purpose.strip() or brief_purpose
+        deliverable = deliverable.strip() or brief_deliverable
+
     path = Path(state_path) if state_path is not None else _default_state_path(query)
     with FileLock(_state_lock_path(path)):
         if path.exists():
@@ -541,6 +592,8 @@ def init_state(
             tuple(dict.fromkeys(channels)) if channels is not None else None,
             version_dates, version_label, purpose, deliverable,
         )
+        if brief is not None:
+            state["topic_brief"] = brief
         _write_state_unlocked(path, state)
     return state
 
@@ -1909,6 +1962,10 @@ def progress_data(state: dict[str, Any], state_path: str | Path | None = None) -
         "pending_split_nodes": pending_split_nodes,
         "open_nodes": open_nodes,
         "pending_review": pending_review,
+        "alias_mentions": (
+            topic_brief.mentions(state.get("topic_brief"), state.get("items") or [])
+            if state.get("topic_brief") else None
+        ),
         "scroll_candidates": scroll_candidates,
         "pdf_candidates": pdf_candidates,
         "next_step": (
@@ -2306,6 +2363,8 @@ def prompt_text(
         "## 交付物要求",
         state.get("deliverable", "").strip() or "（未设置）",
         "",
+        *_brief_task_lines(state.get("topic_brief")),
+        "",
         "## 问题",
         str(data["question"] or ""),
         "",
@@ -2424,6 +2483,8 @@ def _task_document(
         "",
         "## 交付物要求",
         state.get("deliverable", "").strip() or "（未设置）",
+        "",
+        *_brief_task_lines(state.get("topic_brief")),
         "",
         "## Task identity",
         f"- task_id: {task_id}",
@@ -2904,6 +2965,7 @@ def build_parser() -> ResearchArgumentParser:
     init_parser.add_argument("--version-label", help="给这组基准日起个名字，如 标准版本或调研批次")
     init_parser.add_argument("--purpose", default="", metavar="TEXT")
     init_parser.add_argument("--deliverable", default="", metavar="TEXT")
+    init_parser.add_argument("--brief", metavar="FILE", help="主题解析卡 JSON（research brief --topic 生成）")
     init_parser.add_argument("--platforms", default=",".join(DEFAULT_PLATFORMS))
     init_parser.add_argument("--channels", default=",".join(DEFAULT_CHANNELS))
     init_parser.add_argument("--detail", type=int, default=0)
@@ -2945,6 +3007,16 @@ def build_parser() -> ResearchArgumentParser:
     setup_parser.add_argument("--json", action="store_true", dest="as_json")
     setup_parser.add_argument("--interactive", action="store_true")
     setup_parser.add_argument("--only", default="", help="comma separated capability keys")
+
+    brief_parser = subparsers.add_parser("brief", help="build or check the topic brief before writing queries")
+    brief_parser.add_argument("--topic", default="", help="用户原话主题，用于生成空白模板")
+    brief_parser.add_argument("--file", default="", help="已有 brief JSON")
+    brief_parser.add_argument("--check", action="store_true", help="只做结构校验")
+    brief_parser.add_argument("--matrix", action="store_true", help="生成机械查询候选")
+    brief_parser.add_argument("--facet", action="append", default=[], help="子问题或检索面，可重复")
+    brief_parser.add_argument("--budget", type=int, default=8, help="最多返回多少条候选")
+    brief_parser.add_argument("--out", metavar="FILE")
+    brief_parser.add_argument("--json", action="store_true", dest="as_json")
 
     clean_parser = subparsers.add_parser("clean", help="delete stale *.lock files left by previous runs")
     clean_parser.add_argument("--state", required=True, metavar="FILE")
@@ -3657,6 +3729,27 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(spec_summary(contract))
             return 0
+        if args.command == "brief":
+            brief = _load_brief_file(args.file) if args.file else None
+            if args.matrix:
+                if brief is None:
+                    raise ResearchCLIError("--matrix 需要 --file", code=2)
+                data = topic_brief.matrix(brief, args.facet, max(1, args.budget))
+            elif args.check:
+                if brief is None:
+                    raise ResearchCLIError("--check 需要 --file", code=2)
+                data = topic_brief.validate(brief)
+            else:
+                if not args.topic.strip():
+                    raise ResearchCLIError("生成模板需要 --topic", code=2)
+                data = topic_brief.template(args.topic)
+            if args.out:
+                Path(args.out).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            if args.as_json:
+                _print_success(command, data)
+            else:
+                print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0 if data.get("ok", True) else 2
         if args.command == "init":
             if args.max_depth < MIN_LAYERS - 1:
                 print(
@@ -3675,6 +3768,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.version_label,
                 args.purpose,
                 args.deliverable,
+                _load_brief_file(args.brief) if args.brief else None,
             )
             state_path = Path(args.state) if args.state else _default_state_path(args.question)
             data = {

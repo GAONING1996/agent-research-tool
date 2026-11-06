@@ -49,10 +49,33 @@ def doctor() -> str:
 
 @mcp.tool()
 def init(question: str, state: str, purpose: str = "", deliverable: str = "",
-         channels: str = "web", max_depth: int = 3) -> str:
-    """Create a research tree. `state` is the JSON file path that holds the whole tree."""
+         channels: str = "web", max_depth: int = 3, brief: str = "") -> str:
+    """Create a research tree. Pass `brief` (path to a topic brief JSON) to carry aliases and exclusions."""
     args = ["init", question, "--state", state, "--purpose", purpose,
             "--deliverable", deliverable, "--channels", channels, "--max-depth", str(max_depth)]
+    if brief:
+        args.extend(["--brief", brief])
+    return _run(args)
+
+
+@mcp.tool()
+def brief_template(topic: str) -> str:
+    """Return a blank topic brief for this topic, with field hints."""
+    return _run(["brief", "--topic", topic])
+
+
+@mcp.tool()
+def brief_check(file: str) -> str:
+    """Structurally check a topic brief: missing fields and literal conflicts only."""
+    return _run(["brief", "--check", "--file", file])
+
+
+@mcp.tool()
+def brief_matrix(file: str, facets: list[str], budget: int = 8) -> str:
+    """Generate mechanical query candidates (alias x facet) capped by budget."""
+    args = ["brief", "--matrix", "--file", file, "--budget", str(budget)]
+    for facet in facets:
+        args.extend(["--facet", facet])
     return _run(args)
 
 

@@ -128,6 +128,17 @@ research config decline --key GROQ_API_KEY --reason "用户没有 Groq 账号"
 ## 3. 用起来
 
 ```bash
+# 第一步：先把主题想清楚（别名、英文名、范围、排除项、目的）
+research brief --topic "你的主题" --out brief.json     # 生成空白模板
+research brief --check --file brief.json                # 结构自检：只查缺项，不打分
+research brief --matrix --file brief.json --facet 换版 --facet 价格 --budget 8
+                                                        # 机械生成查询候选，挑哪些由 agent 决定
+
+# 第二步：带着解析卡建树
+research init "问题" --state tree.json --brief brief.json
+```
+
+```bash
 research init "问题" --state tree.json --purpose "给谁、用来干什么" --deliverable "每条结论要含什么"
 research set-node --state tree.json --node n0 --queries "查询1" "查询2" --counter-queries "反驳查询"
 research run --state tree.json --ready --fetch 4
@@ -150,7 +161,7 @@ research digest --state tree.json
 
 | 脚本 | 用途 |
 |---|---|
-| `research` | 树状调研全流程 |
+| `research` | 树状调研全流程（brief / init / run / show / review / claim / digest） |
 | `fetch_smart` | 四级抓正文（Tavily → HTTP → 无头 Chrome → 已登录会话；可选 PDF、滚动翻页、Open Notebook） |
 | `collect` | 多渠采集：web / bili / youtube / hn / github / ghissues / ghdiscussions / v2ex / so / rss / podcast / stats |
 | `search_dual` | Tavily + SearXNG 并行搜索并去重 |

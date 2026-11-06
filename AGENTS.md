@@ -42,6 +42,16 @@ python research.py doctor --json
 
 ## 最小完整流程
 
+第一步先做主题解析卡，不要直接写查询：
+
+```bash
+python research.py brief --topic "调研主题" --out brief.json
+python research.py brief --check --file brief.json        # 缺项会列出来；别名可以为空但要有理由
+python research.py brief --matrix --file brief.json --facet 子问题1 --facet 子问题2 --budget 8
+```
+
+矩阵只是候选：别名未必都可信、口语/英文未必都有，挑哪些、先跑哪几条由你判断。
+
 ```bash
 python research.py init "调研问题" --state research.json \
   --purpose "为什么要查" --deliverable "交付物要求" --channels web --json
