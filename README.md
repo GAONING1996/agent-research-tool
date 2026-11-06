@@ -134,6 +134,12 @@ research brief --check --file brief.json                # 结构自检：只查�
 research brief --matrix --file brief.json --facet 换版 --facet 价格 --budget 8
                                                         # 机械生成查询候选，挑哪些由 agent 决定
 
+# 每一轮跑完：先看缺什么，再决定补不补
+research gaps --state tree.json                      # 事实观察：0 命中的叫法、没证据的节点、没成枝的视角
+research gaps --state tree.json --file gaps.json --spawn
+                                                     # 记录本轮缺口，并把开放缺口变成子节点
+research gaps --state tree.json --resolve g1 --status covered --note "已补英文名"
+
 # 第二步：带着解析卡建树
 research init "问题" --state tree.json --brief brief.json
 ```

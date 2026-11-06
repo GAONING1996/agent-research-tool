@@ -959,6 +959,201 @@ def apply_reviews(
     return state
 
 
+# ---------------------------------------------------------------------------
+# Gap rounds: after a wave the agent declares what is still missing, the tool
+# records it, can turn each gap into a child node, and keeps it visible until
+# the agent marks it covered or dropped with a reason. No scoring, no auto-close.
+
+GAP_STATUSES = ("open", "covered", "dropped")
+
+
+def _gap_rounds(state: dict[str, Any]) -> list[dict[str, Any]]:
+    rounds = state.get("gap_rounds")
+    if not isinstance(rounds, list):
+        rounds = []
+        state["gap_rounds"] = rounds
+    return rounds
+
+
+def _all_gaps(state: dict[str, Any]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for row in _gap_rounds(state):
+        for gap in row.get("gaps") or []:
+            if isinstance(gap, dict):
+                gaps.append(gap)
+    return gaps
+
+
+def gap_observations(state: dict[str, Any]) -> dict[str, Any]:
+    """Mechanical facts an agent can use to decide what is missing."""
+    nodes = _node_index(state)
+    items = state.get("items") or []
+
+    alias_rows: list[dict[str, Any]] = []
+    brief = state.get("topic_brief")
+    if isinstance(brief, dict):
+        mentions = topic_brief.mentions(brief, items)
+        for row in (mentions or {}).get("by_alias", []):
+            if int(row.get("title_hits") or 0) + int(row.get("body_hits") or 0) == 0:
+                alias_rows.append({"alias": row["alias"], "note": "该叫法在所有证据里 0 命中；可能写错，也可能确实没人这么叫。"})
+
+    empty_nodes = [
+        {"node_id": node["id"], "question": node.get("question", ""), "status": node.get("status")}
+        for node in nodes.values()
+        if node.get("status") in {"open", "partial"} and not node.get("evidence_ids")
+    ]
+
+    perspectives = []
+    if isinstance(brief, dict):
+        questions = " ".join(str(node.get("question") or "") + " " + str(node.get("context") or "") for node in nodes.values()).casefold()
+        for row in brief.get("perspectives") or []:
+            name = str((row or {}).get("name") or "").strip()
+            if name and name.casefold() not in questions:
+                perspectives.append({"name": name, "note": "这个视角目前没有任何节点在问，但要不要成枝由你判断。"})
+
+    open_rows = [gap for gap in _all_gaps(state) if gap.get("status") == "open"]
+    return {
+        "rounds": len(_gap_rounds(state)),
+        "open_gaps": open_rows,
+        "facts": {
+            "aliases_without_hits": alias_rows,
+            "nodes_without_evidence": empty_nodes,
+            "perspectives_without_node": perspectives,
+            "evidence_total": len(items),
+        },
+        "note": "这些只是事实观察，不是缺口清单；缺什么、补不补由你判断。",
+    }
+
+
+def record_gaps(state_path: Path | str, gaps: list[dict[str, Any]]) -> dict[str, Any]:
+    if not isinstance(gaps, list) or not gaps:
+        raise ValueError("gaps must be a non-empty list")
+    path = Path(state_path)
+    with FileLock(_state_lock_path(path)):
+        state = _read_state_unlocked(path)
+        rounds = _gap_rounds(state)
+        number = len(rounds) + 1
+        existing_ids = {str(gap.get("id")) for gap in _all_gaps(state)}
+        recorded = []
+        for index, raw in enumerate(gaps, start=1):
+            if not isinstance(raw, dict):
+                raise ValueError(f"gap #{index} must be an object")
+            question = str(raw.get("next_question") or raw.get("question") or "").strip()
+            what = str(raw.get("what") or "").strip()
+            if not question and not what:
+                raise ValueError(f"gap #{index} needs next_question or what")
+            counter = len(existing_ids)
+            gap_id = f"g{counter + 1}"
+            while gap_id in existing_ids:
+                counter += 1
+                gap_id = f"g{counter + 1}"
+            gap = {
+                "id": gap_id,
+                "what": what or question,
+                "why": str(raw.get("why") or "").strip(),
+                "kind": str(raw.get("kind") or "query").strip() or "query",
+                "angle": str(raw.get("angle") or "").strip(),
+                "next_question": question or what,
+                "queries": [str(q) for q in (raw.get("queries") or []) if str(q).strip()],
+                "acceptance": [str(a) for a in (raw.get("acceptance") or []) if str(a).strip()],
+                "parent": str(raw.get("parent") or "n0"),
+                "node_id": None,
+                "status": "open",
+                "note": "",
+                "created_at": _now(),
+            }
+            existing_ids.add(gap_id)
+            recorded.append(gap)
+        rounds.append({"round": number, "created_at": _now(), "gaps": recorded})
+        _write_state_unlocked(path, state)
+    return {"round": number, "gaps": recorded}
+
+
+def _find_gap(state: dict[str, Any], gap_id: str) -> dict[str, Any]:
+    for gap in _all_gaps(state):
+        if str(gap.get("id")) == gap_id:
+            return gap
+    raise ValueError(f"unknown gap: {gap_id}")
+
+
+def resolve_gap(state_path: Path | str, gap_id: str, status: str, note: str = "") -> dict[str, Any]:
+    if status not in {"covered", "dropped"}:
+        raise ValueError("--status must be covered or dropped")
+    if status == "dropped" and not note.strip():
+        raise ValueError("dropped 需要 --note 说明为什么放弃")
+    path = Path(state_path)
+    with FileLock(_state_lock_path(path)):
+        state = _read_state_unlocked(path)
+        gap = _find_gap(state, gap_id)
+        gap["status"] = status
+        gap["note"] = note.strip()
+        gap["resolved_at"] = _now()
+        _write_state_unlocked(path, state)
+    return gap
+
+
+def spawn_gaps(state_path: Path | str, gap_ids: list[str] | None = None) -> dict[str, Any]:
+    """Turn recorded, unresolved gaps into child nodes. One child per gap."""
+    path = Path(state_path)
+    with FileLock(_state_lock_path(path)):
+        state = _read_state_unlocked(path)
+        nodes = _node_index(state)
+        targets = [gap for gap in _all_gaps(state) if gap.get("status") == "open" and not gap.get("node_id")]
+        if gap_ids:
+            wanted = set(gap_ids)
+            targets = [gap for gap in targets if str(gap.get("id")) in wanted]
+            missing = wanted - {str(gap.get("id")) for gap in targets}
+            if missing:
+                raise ValueError("no spawnable gap: " + ", ".join(sorted(missing)))
+        if not targets:
+            raise ValueError("没有可派生的缺口：先 gaps --file 记录，再 --spawn")
+
+        created = []
+        for gap in targets:
+            parent = nodes.get(str(gap.get("parent") or "n0"))
+            if parent is None:
+                parent = nodes.get("n0")
+            if parent is None:
+                raise ValueError("状态里没有根节点 n0")
+            if int(parent.get("depth") or 0) + 1 > int(state.get("max_depth") or 3):
+                raise ValueError(f"节点 {parent['id']} 已到最大层数，缺口 {gap['id']} 不能再派生；把它写进父节点结论或标记 dropped。")
+            child_id = _next_numbered_id(state["nodes"], "n")
+            child = {
+                "id": child_id,
+                "kind": "content",
+                "parent": parent["id"],
+                "question": gap["next_question"],
+                "context": chr(10).join(part for part in [
+                    f"缺口：{gap['what']}",
+                    f"原因：{gap['why']}" if gap["why"] else "",
+                    f"角度：{gap['angle']}" if gap["angle"] else "",
+                ] if part),
+                "acceptance": gap["acceptance"] or ["Collect direct evidence that closes this gap."],
+                "scope_delta": gap["angle"] or gap["kind"],
+                "depth": int(parent.get("depth") or 0) + 1,
+                "status": "open",
+                "channels": [],
+                "queries": list(gap["queries"]),
+                "queries_configured": bool(gap["queries"]),
+                "counter_queries": [],
+                "evidence_ids": [],
+                "dropped": 0,
+                "dropped_spam": 0,
+                "result": "",
+                "review": {
+                    "verdict": "", "rationale": "", "unresolved": [], "early_close": False,
+                    "early_close_reason": None, "reviewed_at": None, "gaps": [],
+                },
+            }
+            state["nodes"].append(child)
+            nodes[child_id] = child
+            state["edges"].append({"from": parent["id"], "to": child_id, "kind": "gap"})
+            gap["node_id"] = child_id
+            created.append({"gap": gap["id"], "node_id": child_id, "question": child["question"]})
+        _write_state_unlocked(path, state)
+    return {"created": created}
+
+
 def _acquire_collector_slot(path: Path, deadline: float) -> FileLock | None:
     slots = _collector_slot_paths(path)
     while time.monotonic() < deadline:
@@ -1962,6 +2157,12 @@ def progress_data(state: dict[str, Any], state_path: str | Path | None = None) -
         "pending_split_nodes": pending_split_nodes,
         "open_nodes": open_nodes,
         "pending_review": pending_review,
+        "gap_rounds": len(_gap_rounds(state)),
+        "open_gaps": [
+            {"id": gap.get("id"), "what": gap.get("what"), "next_question": gap.get("next_question"),
+             "node_id": gap.get("node_id")}
+            for gap in _all_gaps(state) if gap.get("status") == "open"
+        ],
         "alias_mentions": (
             topic_brief.mentions(state.get("topic_brief"), state.get("items") or [])
             if state.get("topic_brief") else None
@@ -1969,6 +2170,8 @@ def progress_data(state: dict[str, Any], state_path: str | Path | None = None) -
         "scroll_candidates": scroll_candidates,
         "pdf_candidates": pdf_candidates,
         "next_step": (
+            "先处理 open_gaps：派生节点补齐，或标 covered/dropped 并说明原因"
+            if any(gap.get("status") == "open" for gap in _all_gaps(state)) else
             "先处理 awaiting_review 节点" if pending_review else
             "运行 run 采集 open 节点" if open_nodes else
             "对最浅的 partial/not_found 节点运行 prompt 补 children" if pending_split else
@@ -2123,7 +2326,16 @@ def digest_text(state: dict[str, Any]) -> str:
     state = _validate_state(state)
     claims = claims_data(state)
     nodes = state["nodes"]
-    lines = [
+    open_gaps = [gap for gap in _all_gaps(state) if gap.get("status") == "open"]
+    lines = []
+    if open_gaps:
+        lines.extend([
+            "## 未处理的缺口",
+            *[f"- {gap.get('id')}：{gap.get('what')}（下一步：{gap.get('next_question')}）" for gap in open_gaps],
+            "- 这些缺口还没有补，结论里要当作已知空白写清楚，不能当成已经查过。",
+            "",
+        ])
+    lines = lines + [
         "# 调研汇总骨架",
         "",
         "## 1. 调研目的与交付物要求",
@@ -3018,6 +3230,16 @@ def build_parser() -> ResearchArgumentParser:
     brief_parser.add_argument("--out", metavar="FILE")
     brief_parser.add_argument("--json", action="store_true", dest="as_json")
 
+    gaps_parser = subparsers.add_parser("gaps", help="declare, spawn and resolve research gaps after a wave")
+    gaps_parser.add_argument("--state", required=True, metavar="FILE")
+    gaps_parser.add_argument("--file", metavar="FILE", help="本轮缺口 JSON")
+    gaps_parser.add_argument("--spawn", action="store_true", help="把记录过的开放缺口变成子节点")
+    gaps_parser.add_argument("--gap", action="append", default=[], help="只派生指定缺口，可重复")
+    gaps_parser.add_argument("--resolve", metavar="GAP_ID")
+    gaps_parser.add_argument("--status", default="", help="covered 或 dropped")
+    gaps_parser.add_argument("--note", default="")
+    gaps_parser.add_argument("--json", action="store_true", dest="as_json")
+
     clean_parser = subparsers.add_parser("clean", help="delete stale *.lock files left by previous runs")
     clean_parser.add_argument("--state", required=True, metavar="FILE")
     clean_parser.add_argument("--older-than", type=float, default=600.0, metavar="SECONDS")
@@ -3729,6 +3951,26 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(spec_summary(contract))
             return 0
+        if args.command == "gaps":
+            if args.resolve:
+                if not args.status:
+                    raise ResearchCLIError("--resolve 需要 --status covered|dropped", code=2)
+                data = {"gap": resolve_gap(args.state, args.resolve, args.status, args.note)}
+            elif args.file or args.spawn:
+                data = {}
+                if args.file:
+                    data.update(record_gaps(args.state, _load_gaps_file(args.file)))
+                if args.spawn:
+                    data.update(spawn_gaps(args.state, args.gap or None))
+                if not data:
+                    raise ResearchCLIError("--spawn 没有可派生的缺口", code=2)
+            else:
+                data = gap_observations(read_state(args.state))
+            if args.as_json:
+                _print_success("gaps", data)
+            else:
+                print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
         if args.command == "brief":
             brief = _load_brief_file(args.file) if args.file else None
             if args.matrix:
@@ -3999,3 +4241,18 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _load_gaps_file(path: str | Path) -> list[dict[str, Any]]:
+    target = Path(path)
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"gaps file not found: {target}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"gaps file is not valid JSON: {target}: {exc}") from exc
+    if isinstance(payload, dict):
+        payload = payload.get("gaps")
+    if not isinstance(payload, list):
+        raise ValueError("gaps file must contain a list, or an object with a 'gaps' list")
+    return payload

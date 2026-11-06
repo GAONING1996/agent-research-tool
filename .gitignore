@@ -29,6 +29,7 @@
 !vision_agnes.py
 !topic_brief.py
 !test_topic_brief.py
+!test_gaps.py
 
 # 忽略规则（即使被上面的白名单匹配）
 __pycache__/

@@ -27,6 +27,14 @@ except ImportError:
 mcp = _Server("research-tool")
 
 
+def _write_temp_json(payload: str) -> str:
+    """Write an inline JSON list to a temp file because the CLI takes file paths."""
+    handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+    handle.write(payload)
+    handle.close()
+    return handle.name
+
+
 def _run(args: list[str]) -> str:
     command = [sys.executable, "-m", "research_tool.research", *args, "--json"]
     completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -56,6 +64,27 @@ def init(question: str, state: str, purpose: str = "", deliverable: str = "",
     if brief:
         args.extend(["--brief", brief])
     return _run(args)
+
+
+@mcp.tool()
+def gaps_observe(state: str) -> str:
+    """Facts that help decide what is missing after a wave (no judgement, no scoring)."""
+    return _run(["gaps", "--state", state])
+
+
+@mcp.tool()
+def gaps_record(state: str, gaps_json: str, spawn: bool = True) -> str:
+    """Record this round's gaps as JSON list (what/why/next_question/queries/angle); optionally spawn child nodes."""
+    args = ["gaps", "--state", state, "--file", _write_temp_json(gaps_json)]
+    if spawn:
+        args.append("--spawn")
+    return _run(args)
+
+
+@mcp.tool()
+def gaps_resolve(state: str, gap_id: str, status: str, note: str = "") -> str:
+    """Mark a gap covered or dropped (dropped needs a reason)."""
+    return _run(["gaps", "--state", state, "--resolve", gap_id, "--status", status, "--note", note])
 
 
 @mcp.tool()

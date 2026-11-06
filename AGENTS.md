@@ -52,6 +52,17 @@ python research.py brief --matrix --file brief.json --facet 子问题1 --facet �
 
 矩阵只是候选：别名未必都可信、口语/英文未必都有，挑哪些、先跑哪几条由你判断。
 
+每一轮采集结束后，不要直接收尾：
+
+```bash
+python research.py gaps --state tree.json            # 先看事实观察
+python research.py gaps --state tree.json --file gaps.json --spawn
+```
+
+`gaps.json` 每条写清：what（缺什么）、why（凭什么判断缺）、angle（换什么角度）、next_question（下一轮具体问法）、queries（初步查询词）。
+只有两种方式结束一个缺口：`--resolve <id> --status covered --note "补了什么"`，或 `--status dropped --note "为什么放弃"`。
+没收口的缺口会出现在 status 和 digest 顶部，不能当成已经查过。
+
 ```bash
 python research.py init "调研问题" --state research.json \
   --purpose "为什么要查" --deliverable "交付物要求" --channels web --json
