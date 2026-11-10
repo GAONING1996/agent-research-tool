@@ -172,6 +172,24 @@ def _default_state_path(query: str) -> Path:
     return config.data_dir() / f"research_{token}.json"
 
 
+def _normalize_state_path(path: Path | str) -> Path:
+    raw_path = os.fspath(path)
+    if not isinstance(raw_path, str):
+        raise ValueError("--state path must be text")
+    if os.name == "nt":
+        drive_alias = re.match(r"^/([A-Za-z])/(.*)$", raw_path)
+        if drive_alias:
+            raw_path = f"{drive_alias.group(1).upper()}:/{drive_alias.group(2)}"
+        elif (raw_path.startswith("/") and not raw_path.startswith("//")) or (
+            raw_path.startswith("\\") and not raw_path.startswith("\\\\")
+        ):
+            raise ValueError(
+                f"ambiguous Windows root-relative --state path: {raw_path!r}; "
+                "use a drive path such as C:\\Users\\... or /C/Users/..."
+            )
+    return Path(raw_path).resolve()
+
+
 def _state_lock_path(path: Path) -> Path:
     return Path(str(path) + ".lock")
 
@@ -473,7 +491,7 @@ def _read_state_unlocked(path: Path) -> dict[str, Any]:
 
 
 def read_state(path: Path | str) -> dict[str, Any]:
-    state_path = Path(path)
+    state_path = _normalize_state_path(path)
     with FileLock(_state_lock_path(state_path)):
         return _read_state_unlocked(state_path)
 
@@ -588,7 +606,11 @@ def init_state(
         purpose = purpose.strip() or brief_purpose
         deliverable = deliverable.strip() or brief_deliverable
 
-    path = Path(state_path) if state_path is not None else _default_state_path(query)
+    path = (
+        _normalize_state_path(state_path)
+        if state_path is not None
+        else _normalize_state_path(_default_state_path(query))
+    )
     with FileLock(_state_lock_path(path)):
         if path.exists():
             raise FileExistsError(f"state file already exists: {path}")
@@ -613,7 +635,7 @@ def set_node(
     kind: str = "content",
     scroll: int | None = None,
 ) -> dict[str, Any]:
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     if kind not in NODE_KINDS:
         raise ValueError("--kind must be content or verification")
     if scroll is not None and not 0 <= int(scroll) <= 10:
@@ -895,7 +917,7 @@ def _validate_reviews(
 def apply_reviews(
     state_path: Path | str, reviews_payload: Any, *, allow_early_close: bool = False,
 ) -> dict[str, Any]:
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     reviews = _unpack_reviews(reviews_payload)
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
@@ -1082,7 +1104,7 @@ def record_gaps(
         if not all(isinstance(node_id, str) and node_id.strip() for node_id in reviewed_nodes or []):
             raise ValueError("reviewed_nodes 必须是非空节点 ID 字符串")
         reviewed_nodes = list(dict.fromkeys(node_id.strip() for node_id in reviewed_nodes or []))
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
         if not gaps:
@@ -1148,7 +1170,7 @@ def resolve_gap(state_path: Path | str, gap_id: str, status: str, note: str = ""
         raise ValueError("--status must be covered or dropped")
     if status == "dropped" and not note.strip():
         raise ValueError("dropped 需要 --note 说明为什么放弃")
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
         gap = _find_gap(state, gap_id)
@@ -1161,7 +1183,7 @@ def resolve_gap(state_path: Path | str, gap_id: str, status: str, note: str = ""
 
 def spawn_gaps(state_path: Path | str, gap_ids: list[str] | None = None) -> dict[str, Any]:
     """Turn recorded, unresolved gaps into child nodes. One child per gap."""
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
         nodes = _node_index(state)
@@ -2013,7 +2035,7 @@ def run_nodes(
         raise ValueError("--timeout must be positive")
     if fetch < 0:
         raise ValueError("--fetch cannot be negative")
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     ids = list(dict.fromkeys(node_ids))
     invalid = [node_id for node_id in ids if not re.fullmatch(r"n\d+", node_id)]
     if invalid:
@@ -2058,14 +2080,14 @@ def run_ready(
     fetch: int = DEFAULT_FETCH_COUNT,
     retry_zero_results: bool = True,
 ) -> dict[str, Any]:
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     state = read_state(path)
     ready = [node["id"] for node in state["nodes"] if node.get("status") == "open"]
     return run_nodes(path, ready, timeout=timeout, fetch=fetch, retry_zero_results=retry_zero_results)
 
 
 def reset_nodes(state_path: Path | str, node_ids: list[str]) -> dict[str, Any]:
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     ids = list(dict.fromkeys(node_ids))
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
@@ -2103,7 +2125,7 @@ def add_claim(
         raise ValueError("claim --support must be single, dual, or contested")
     if gaps is not None and (not isinstance(gaps, list) or not all(isinstance(gap_id, str) for gap_id in gaps)):
         raise ValueError("claim --gaps must contain gap ids")
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
         if node_id not in _node_index(state):
@@ -2141,7 +2163,7 @@ def add_claim(
 
 
 def remove_claim(state_path: Path | str, claim_id: str) -> dict[str, Any]:
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
         remaining = [claim for claim in state["claims"] if claim.get("id") != claim_id]
@@ -2929,7 +2951,7 @@ def _task_document(
 
 
 def emit_task(state_path: Path | str, node_id: str, out_file: Path | str) -> dict[str, Any]:
-    resolved_state_path = Path(state_path).resolve()
+    resolved_state_path = _normalize_state_path(state_path)
     state = read_state(resolved_state_path)
     node = _node_index(state).get(node_id)
     if node is None:
@@ -2978,7 +3000,7 @@ def record_task_run(
         if type(body_chars) is not int or body_chars < 0:
             raise ValueError("each task report source requires non-negative integer body_chars")
         body_lengths.append(body_chars)
-    path = Path(state_path)
+    path = _normalize_state_path(state_path)
     with FileLock(_state_lock_path(path)):
         state = _read_state_unlocked(path)
         if node_id not in _node_index(state):
@@ -4064,7 +4086,7 @@ def _run_collection_failure(
 
 def clean_stale_locks(state_path: Path | str, older_than: float = 600.0) -> list[str]:
     """Remove leftover *.lock files for a state that are older than `older_than` seconds."""
-    base = Path(state_path)
+    base = _normalize_state_path(state_path)
     cutoff = time.time() - older_than
     removed: list[str] = []
     for path in base.parent.glob(base.name + "*.lock"):
@@ -4133,6 +4155,8 @@ def main(argv: list[str] | None = None) -> int:
 
     command = _command_name(args, argv_values, parser)
     try:
+        if getattr(args, "state", None) is not None:
+            args.state = str(_normalize_state_path(args.state))
         if args.command == "doctor":
             data = doctor_data()
             if args.as_json:
@@ -4225,7 +4249,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.deliverable,
                 _load_brief_file(args.brief) if args.brief else None,
             )
-            state_path = Path(args.state) if args.state else _default_state_path(args.question)
+            state_path = _normalize_state_path(args.state) if args.state else _normalize_state_path(
+                _default_state_path(args.question)
+            )
             data = {
                 "state_path": str(state_path.resolve()),
                 "root_id": state["root"],
@@ -4431,7 +4457,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(status_text(data))
             return 0
         if args.command == "digest":
-            state_path = Path(args.state).resolve()
+            state_path = _normalize_state_path(args.state)
             digest_state = read_state(state_path)
             if not gap_review_recorded(digest_state):
                 raise ResearchCLIError(
