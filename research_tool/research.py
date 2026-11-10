@@ -341,6 +341,7 @@ def _new_state(
             "evidence_ids": [],
             "dropped": 0,
             "dropped_spam": 0,
+            "keyword_unmatched_count": 0,
             "result": "",
             "review": {
                 "verdict": "",
@@ -434,6 +435,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
                 raise ValueError(f"node {node.get('id')} review.gaps must be a list")
             node.setdefault("dropped", 0)
             node.setdefault("dropped_spam", 0)
+            node.setdefault("keyword_unmatched_count", 0)
             node.setdefault("acceptance", [])
             node.setdefault("channels", [])
             node.setdefault("queries", [])
@@ -456,6 +458,9 @@ def _validate_state(state: Any) -> dict[str, Any]:
                 node.pop(name, None)
             _fetch_stats(node)
     _upgrade_state_item_contract(state)
+    for node in state["nodes"]:
+        if isinstance(node, dict):
+            node["keyword_unmatched_count"] = _node_keyword_unmatched_count(state, node)
     return state
 
 
@@ -940,6 +945,7 @@ def apply_reviews(
                     "evidence_ids": [],
                     "dropped": 0,
                     "dropped_spam": 0,
+                    "keyword_unmatched_count": 0,
                     "result": "",
                     "review": {
                         "verdict": "",
@@ -1200,6 +1206,7 @@ def spawn_gaps(state_path: Path | str, gap_ids: list[str] | None = None) -> dict
                 "evidence_ids": [],
                 "dropped": 0,
                 "dropped_spam": 0,
+                "keyword_unmatched_count": 0,
                 "result": "",
                 "review": {
                     "verdict": "", "rationale": "", "unresolved": [], "early_close": False,
@@ -1476,12 +1483,32 @@ def _merge_items(state: dict[str, Any], node: dict[str, Any], rows: list[dict[st
                     item[name] = normalized[name]
         if node["id"] not in item["node_ids"]:
             item["node_ids"].append(node["id"])
-        relation = {"node_id": node["id"], "query_kind": query_kind}
+        relevance = _keyword_relevance(
+            str(node.get("question") or ""),
+            str(item.get("title") or ""),
+            " ".join((str(item.get("summary") or ""), str(normalized.get("summary") or ""))),
+        )
+        relation = {
+            "node_id": node["id"],
+            "query_kind": query_kind,
+            "keyword_relevance": relevance,
+        }
         node_refs = item.setdefault("node_refs", [])
-        if relation not in node_refs:
+        current_relation = next((
+            candidate for candidate in node_refs
+            if isinstance(candidate, dict)
+            and candidate.get("node_id") == node["id"]
+            and candidate.get("query_kind") == query_kind
+        ), None)
+        if current_relation is None:
             node_refs.append(relation)
+        else:
+            previous = current_relation.get("keyword_relevance")
+            if not isinstance(previous, dict) or relevance["score"] >= float(previous.get("score") or 0):
+                current_relation["keyword_relevance"] = relevance
         if item["id"] not in node["evidence_ids"]:
             node["evidence_ids"].append(item["id"])
+    node["keyword_unmatched_count"] = _node_keyword_unmatched_count(state, node)
 
 
 def _normalize_item_row(row: Any) -> dict[str, Any] | None:
@@ -1612,6 +1639,7 @@ def _upgrade_state_item_contract(state: dict[str, Any]) -> None:
 
     items = []
     dropped_ids = set()
+    node_index = _node_index(state)
     for raw in state["items"]:
         if not isinstance(raw, dict):
             continue
@@ -1652,6 +1680,12 @@ def _upgrade_state_item_contract(state: dict[str, Any]) -> None:
                 {"node_id": str(node["id"]), "query_kind": "support"}
                 for node in linked_nodes if isinstance(node.get("id"), str)
             ]
+        for relation in refs:
+            owner = node_index.get(str(relation.get("node_id")))
+            if owner is not None:
+                relation["keyword_relevance"] = _keyword_relevance(
+                    str(owner.get("question") or ""), normalized["title"], normalized["summary"],
+                )
         normalized["node_refs"] = refs
         items.append(normalized)
 
@@ -1677,6 +1711,46 @@ def _question_tokens(question: str) -> set[str]:
             if token:
                 tokens.add(token)
     return tokens
+
+
+def _keyword_relevance(question: str, title: str, summary: str) -> dict[str, Any]:
+    question_tokens = _question_tokens(question)
+    matched_terms = len(question_tokens & (_question_tokens(title) | _question_tokens(summary)))
+    question_term_count = len(question_tokens)
+    score = matched_terms / question_term_count if question_term_count else 1.0
+    return {
+        "label": "matched" if matched_terms else "unmatched",
+        "score": round(score, 4),
+        "matched_terms": matched_terms,
+        "question_terms": question_term_count,
+    }
+
+
+def _node_keyword_unmatched_count(state: dict[str, Any], node: dict[str, Any]) -> int:
+    node_id = str(node.get("id") or "")
+    item_index = {str(item.get("id")): item for item in state.get("items", []) if isinstance(item, dict)}
+    unmatched = 0
+    for item_id in node.get("evidence_ids", []):
+        item = item_index.get(str(item_id))
+        if item is None:
+            continue
+        relevance_rows = [
+            relation.get("keyword_relevance")
+            for relation in item.get("node_refs", [])
+            if isinstance(relation, dict) and str(relation.get("node_id")) == node_id
+            and isinstance(relation.get("keyword_relevance"), dict)
+        ]
+        if relevance_rows:
+            relevance = max(relevance_rows, key=lambda row: float(row.get("score") or 0))
+        else:
+            relevance = _keyword_relevance(
+                str(node.get("question") or ""),
+                str(item.get("title") or ""),
+                str(item.get("summary") or ""),
+            )
+        if relevance.get("label") == "unmatched":
+            unmatched += 1
+    return unmatched
 
 
 def _item_body_chars(item: dict[str, Any]) -> int:
@@ -1708,18 +1782,20 @@ def _looks_like_pdf(url: str) -> bool:
 def _fetch_candidates(state: dict[str, Any], node: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     if limit <= 0:
         return []
-    tokens = _question_tokens(str(node.get("question") or ""))
     item_index = {str(item.get("id")): item for item in state["items"]}
     ranked = []
     for position, item_id in enumerate(node.get("evidence_ids", [])):
         item = item_index.get(str(item_id))
         if item is None or _item_has_body(item):
             continue
-        title_tokens = _question_tokens(str(item.get("title") or ""))
-        overlap = len(tokens & title_tokens)
-        ranked.append((-overlap, position, item))
+        relevance = _keyword_relevance(
+            str(node.get("question") or ""),
+            str(item.get("title") or ""),
+            str(item.get("summary") or ""),
+        )
+        ranked.append((relevance["label"] == "unmatched", -relevance["score"], position, item))
     ranked.sort(key=lambda entry: entry[:2])
-    return [entry[2] for entry in ranked[:limit]]
+    return [entry[3] for entry in ranked[:limit]]
 
 
 def _fetch_payload(url: str, scroll: int | None = None) -> tuple[dict[str, Any] | None, str | None]:
@@ -2141,6 +2217,11 @@ def progress_data(state: dict[str, Any], state_path: str | Path | None = None) -
     pending_review = [node["id"] for node in nodes if node.get("status") == "awaiting_review"]
     has_gap_review = gap_review_recorded(state)
     aliases_without_queries = topic_brief.aliases_without_queries(state.get("topic_brief"), nodes)
+    keyword_unmatched_results = []
+    for node in nodes:
+        unmatched_count = _node_keyword_unmatched_count(state, node)
+        if unmatched_count:
+            keyword_unmatched_results.append({"node_id": node["id"], "count": unmatched_count})
     unmet_reasons = []
     if current_layers < MIN_LAYERS:
         unmet_reasons.append({
@@ -2237,6 +2318,7 @@ def progress_data(state: dict[str, Any], state_path: str | Path | None = None) -
             if state.get("topic_brief") else None
         ),
         "aliases_without_queries": aliases_without_queries,
+        "keyword_unmatched_results": keyword_unmatched_results,
         "scroll_candidates": scroll_candidates,
         "pdf_candidates": pdf_candidates,
         "next_step": (
@@ -2298,6 +2380,11 @@ def status_text(data: dict[str, Any]) -> str:
         f"awaiting_review 节点: {', '.join(data['pending_review']) or '-'}",
         f"缺口复核记录: {'已记录' if data['gap_review_recorded'] else '尚未记录'}（{data['gap_rounds']} 轮）",
         f"brief 别名未进入查询: {', '.join(row['alias'] for row in data.get('aliases_without_queries') or []) or '-'}",
+        "关键词未匹配结果（仍保留）: " + (
+            ", ".join(
+                f"{row['node_id']}={row['count']}" for row in data.get("keyword_unmatched_results", [])
+            ) or "0"
+        ),
         f"可考虑滚动节点: {scroll_text}",
         f"未抓 PDF: {pdf_text}",
         f"下一步建议命令: {data['next_command']}",
@@ -2340,6 +2427,7 @@ def report_text(state: dict[str, Any], *, include_claims: bool = True) -> str:
             label += f" 字数分布={'/'.join(map(str, fetched_chars)) or '-'}"
         label += f" | 丢弃无效记录 {int(node.get('dropped') or 0)}"
         label += f" | 丢弃垃圾源 {int(node.get('dropped_spam') or 0)}"
+        label += f" | 关键词未匹配结果（仍保留） {int(node.get('keyword_unmatched_count') or 0)}"
         if node.get("zero_result_retry"):
             label += f" | 零结果重试: 是（web，得到 {int(node.get('retry_rows') or 0)} 条）"
         lines.append(label if root else prefix + ("└─ " if last else "├─ ") + label)
@@ -3663,7 +3751,9 @@ def contract_data(parser: argparse.ArgumentParser | None = None) -> dict[str, An
         "result_contract": {
             "state_document": {
                 "fields": ["state_version", "root", "channels", "nodes", "items", "claims"],
-                "node_fields": ["id", "status", "question", "channels", "evidence_ids"],
+                "node_fields": [
+                    "id", "status", "question", "channels", "evidence_ids", "keyword_unmatched_count",
+                ],
             },
             "doctor": {
                 "format": "direct JSON object (not the standard command envelope)",
@@ -3686,7 +3776,7 @@ def contract_data(parser: argparse.ArgumentParser | None = None) -> dict[str, An
                     "layers", "unmet_reasons", "pending_split", "pending_split_nodes", "open_nodes",
                     "pending_review", "gap_rounds", "gap_review_recorded", "open_gaps",
                     "alias_mentions", "aliases_without_queries", "scroll_candidates", "pdf_candidates",
-                    "next_step", "suggested_commands", "next_command",
+                    "keyword_unmatched_results", "next_step", "suggested_commands", "next_command",
                 ],
             },
             "gaps": {
@@ -4008,6 +4098,7 @@ def _run_view(state: dict[str, Any]) -> dict[str, Any]:
             "evidence": len(node.get("evidence_ids") or []),
             "bodies": body_by_node.get(node_id, 0),
             "fetch_errors": len(node.get("fetch_errors") or []),
+            "keyword_unmatched_count": _node_keyword_unmatched_count(state, node),
         })
     return {
         "nodes": nodes,
