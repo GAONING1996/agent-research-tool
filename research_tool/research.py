@@ -2710,8 +2710,8 @@ def show_text(data: dict[str, Any]) -> str:
     ]
     if not data["evidence"]:
         lines.append("（没有证据）")
-    for index, item in enumerate(data["evidence"], 1):
-        lines.append(f"{index}. {item['title']} {_body_status(item)}")
+    for item in data["evidence"]:
+        lines.append(f"{item['ref']}. {item['title']} {_body_status(item)}")
         details = [
             f"域名：{item['domain'] or '-'}",
             f"发布时间：{item['published'] or '-'}",
